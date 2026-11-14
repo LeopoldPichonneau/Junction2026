@@ -41,6 +41,8 @@ services:
     volumes:
       - ./web:/app/web:ro
       - ./data:/data
+      # Hand-made English translations of the demo cases, shown next to the Finnish diff.
+      - ./analysis/demo_cases.json:/analysis/demo_cases.json:ro
     command: uvicorn main:app --host 0.0.0.0 --port 8000
 
 volumes:

@@ -2,12 +2,14 @@
 
 Images and references are removed here, so analysis code must read the raw wikitext instead.
 """
+import html
 import re
 
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
 _REF_PAIR = re.compile(r"<ref[^>/]*>.*?</ref\s*>", re.S | re.I)
 _REF_SELF = re.compile(r"<ref[^>]*/>", re.I)
 _TABLE = re.compile(r"\{\|.*?\|\}", re.S)
+_GALLERY = re.compile(r"<gallery[^>]*>.*?</gallery\s*>", re.S | re.I)   # "Kuva:x.jpg|caption" lines
 _TEMPLATE = re.compile(r"\{\{[^{}]*\}\}")          # innermost first, looped for nesting
 _FILE_PREFIX = re.compile(r"\[\[\s*(Tiedosto|Kuva|File|Image|Luokka|Category)\s*:", re.I)
 _LINK = re.compile(r"\[\[([^\[\]|]*)\|([^\[\]]*)\]\]")
@@ -44,6 +46,7 @@ def clean(text: str) -> str:
     text = _REF_PAIR.sub("", text)
     text = _REF_SELF.sub("", text)
     text = _TABLE.sub("", text)
+    text = _GALLERY.sub("", text)
     for _ in range(20):                       # templates nest; stop when nothing changes
         new = _TEMPLATE.sub("", text)
         if new == text:
@@ -57,5 +60,7 @@ def clean(text: str) -> str:
     text = _HEADING.sub(lambda m: "#" * len(m.group(1)) + " " + m.group(2), text)
     text = text.replace("'''", "").replace("''", "")
     text = _TAG.sub("", text)
+    # After the tags are gone, so an escaped "&lt;ref&gt;" stays visible text instead of becoming a tag.
+    text = html.unescape(text)                # "11&nbsp;652" -> "11 652"
     text = "\n".join(line.rstrip() for line in text.splitlines())
     return _BLANKS.sub("\n\n", text).strip()
