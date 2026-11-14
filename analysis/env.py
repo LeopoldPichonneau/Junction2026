@@ -25,3 +25,29 @@ def load_env(path: Path = ENV_FILE) -> None:
 
 def use_mock() -> bool:
     return os.environ.get("USE_MOCK", "false").strip().lower() == "true"
+
+
+# Backup when the event's Verda server is down (docs/TECH.md section 2).
+NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
+NVIDIA_CALLS_PER_MINUTE = 35    # the documented limit is about 40 per key: keep a margin
+
+
+def nemotron_config() -> dict:
+    """Where to send Nemotron calls, chosen by NEMOTRON_PROVIDER=verda (default) or nvidia."""
+    provider = os.environ.get("NEMOTRON_PROVIDER", "verda").strip().lower()
+    if provider == "nvidia":
+        return {"provider": "nvidia",
+                "base_url": os.environ.get("NVIDIA_BASE_URL", NVIDIA_BASE_URL),
+                "key": os.environ.get("NVIDIA_API_KEY", ""),
+                "key_name": "NVIDIA_API_KEY",
+                "model": os.environ.get("NVIDIA_MODEL", NVIDIA_MODEL),
+                "calls_per_minute": int(os.environ.get("NVIDIA_CALLS_PER_MINUTE", NVIDIA_CALLS_PER_MINUTE))}
+    if provider != "verda":
+        raise SystemExit(f"NEMOTRON_PROVIDER must be 'verda' or 'nvidia', not {provider!r}")
+    return {"provider": "verda",
+            "base_url": os.environ.get("NEMOTRON_BASE_URL", ""),
+            "key": os.environ.get("VERDA_INFERENCE_KEY", ""),
+            "key_name": "VERDA_INFERENCE_KEY",
+            "model": os.environ.get("NEMOTRON_MODEL", ""),
+            "calls_per_minute": None}
