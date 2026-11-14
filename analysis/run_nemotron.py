@@ -35,11 +35,16 @@ FOCUS_PAGE = 1150               # Suomen sisällissota: the core of the demo
 MAX_WORKERS = 4                 # shared server: never more than 4 calls at once
 STOP_AFTER_FAILURES = 10        # with 4 parallel calls, a short burst of 500s already gives 3-4 failures
 
+PROMPT_VERSION = "v4"           # history and measured reasons: analysis/PROMPT-LOG.md
 INVESTIGATOR_PROMPT = """You investigate one edit to a Finnish Wikipedia article about the history of Finland.
 Texts are in Finnish; reason over them and answer in English.
 Decide whether this edit looks like an attempt to push a narrative (one-sided reframing,
 misleading image or caption, removal of sources, coordinated editing) rather than ordinary
 editing (new facts, style, sourcing, vandalism cleanup). Be conservative: most edits are ordinary.
+Obvious vandalism (insults, slurs, nonsense words, jokes, blanking) is not narrative pushing:
+nobody would believe it, and it is usually reverted within minutes. For vandalism, answer
+"suspicious": false and put "vandalism" in "signals". Keep "suspicious": true for edits that could
+plausibly change what a reader believes about history.
 The edit is given as JSON: "added" and "removed" are the words that changed, with separate
 passages joined by " … "; "image" describes an image change with the old and new captions;
 "refs_removed" is the number of <ref> citations removed.
@@ -101,7 +106,9 @@ def ask_nemotron(prompt: str, edit: str, image_url: str | None) -> dict:
     if use_mock():
         time.sleep(0.05)
         return mock_report(image_url)
-    if image_url and os.environ.get("NEMOTRON_IMAGE_AS_DATA", "false").lower() == "true":
+    # Sent inline by default: when the server fetched Wikimedia links itself, 47 of 104 image
+    # calls failed with HTTP 500 on Saturday; the same edits passed once sent inline.
+    if image_url and os.environ.get("NEMOTRON_IMAGE_AS_DATA", "true").lower() == "true":
         image_url = image_as_data_url(image_url)
     content = edit if not image_url else [
         {"type": "text", "text": edit},
@@ -145,6 +152,7 @@ def clean_report(raw: dict, has_image: bool) -> dict:
         "report": str(raw.get("report", "")),
         "image_findings": findings,
         "model": "mock" if use_mock() else CONFIG["model"],
+        "prompt_version": PROMPT_VERSION,
     }
 
 

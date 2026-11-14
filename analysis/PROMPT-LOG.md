@@ -65,6 +65,50 @@ After changes 11 and 12, `analysis.jsonl` keeps only answers whose evidence is u
 instead of the one of the day, so they are sent again. Rows 464719 and 466136 of the table above
 are among those 20.
 
+## v4: vandalism is not narrative pushing
+
+In the next batch, the 3 new "suspicious" answers were all crude vandalism from 2007, described
+correctly by Nemotron but not attempts to rewrite history:
+
+| rev_id | Article | Edit |
+|---|---|---|
+| 2147811 | Tarja Halonen | Section on her presidency replaced by invented drug accusations; insults in a caption |
+| 2478677 | Mikael Agricola | Homophobic slur inserted in the caption of his statue |
+| 2683058 | Mauno Koivisto | "Mauno" replaced by a nonsense word in a caption |
+
+| # | Change | Reason (measured) |
+|---|---|---|
+| 13 | The prompt says obvious vandalism (insults, slurs, nonsense, jokes, blanking) gets `"suspicious": false` with a `"vandalism"` signal; `"suspicious": true` is kept for edits that could plausibly change what a reader believes about history | 3 of 3 new "suspicious" answers were vandalism, which would flood the review queue and the "flag" list |
+| 14 | Each answer records `nemotron.prompt_version` | So results from different prompt versions can be told apart (answers without it are v2/v3) |
+
+The end of that batch added a 4th one: rev 3978718 (Urho Kekkonen, 2007), "Urho Kekkonen" renamed
+"Urho Kokkelberg" in a caption.
+
+Result of v4 on the same edits (14/11, `data/exchange/prompt-v4-test.jsonl`, 2-5 s per call):
+
+| rev_id | v3 suspicious | v4 suspicious | v4 signals |
+|---|---|---|---|
+| 2147811 | yes | **no** | vandalism |
+| 2478677 | yes | **no** | vandalism |
+| 2683058 | yes | **no** | vandalism |
+| 3978718 | yes | **no** | vandalism |
+| 24234965 | yes | **yes** | framing, terminology_shift, one-sided_reframing |
+
+4 of 4 vandalism edits are no longer flagged, and the real reframing case stays flagged.
+These 5 answers replace their v3 versions in `analysis.jsonl`.
+
+| # | Change | Reason (measured) |
+|---|---|---|
+| 15 | The thumbnail is downloaded by our script (with our descriptive User-Agent) and sent **inline** (base64 data URL) instead of as a link the server fetches itself | In the 120-edit batch, all 47 HTTP 500 errors were edits with an image, while 57 other image edits passed: the server's own fetch from Wikimedia failed intermittently. The 2 synthetic image edits that failed 3 times in a row passed at once when sent inline |
+
+## Synthetic test campaign (from `decision/quality.py`)
+
+13 planted edits, `synthetic: true` (never sent to the model as such, never public): 6 coordinated
+insertions, 4 "sisällissota" → "vapaussota" swaps, 3 image captions swapped between unrelated photos.
+With v4: **13 / 13 suspicious**. For the 3 image edits, Nemotron described the real picture, e.g.
+rev 900000012: "a black-and-white 19th-century view of Tammerkoski rapids with factory buildings
+[…] not an aerial photo of 1968 Vuosaari", `caption_matches: false`.
+
 ## v1 vs v2 on the same edits
 
 **TODO**: run once the main batch is over (the server is shared):

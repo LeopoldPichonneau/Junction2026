@@ -54,7 +54,10 @@ encore, `thumb_url`, `author` et `license` valent `null` : ni le site ni Nemotro
 modifiées, images remplacées, sources, framing, images ajoutées/retirées ; l'article 1150 d'abord dans chaque groupe.
 `--limit` est obligatoire (pas de lancement massif par erreur), 2 appels en parallèle par défaut, 4 au maximum
 (serveur partagé). Chaque réponse est écrite dès qu'elle arrive ; au redémarrage, les `rev_id` déjà présents sont sautés.
-Le script s'arrête après 3 échecs de suite. `synthetic`, `account_hash` et les identifiants ne sont pas envoyés au modèle.
+Le script s'arrête après 10 échecs de suite. Les miniatures sont téléchargées par le script et envoyées
+**dans le message** : quand le serveur allait les chercher lui-même chez Wikimedia, la moitié des appels avec image
+échouaient (`NEMOTRON_IMAGE_AS_DATA=false` dans `.env` pour revenir aux liens). Consigne actuelle : v4 (le vandalisme
+évident n'est pas « suspect »), voir `PROMPT-LOG.md`. `synthetic`, `account_hash` et les identifiants ne sont pas envoyés au modèle.
 
 ## Champs ajoutés aux formats (à signaler à Léopold pour l'import)
 
