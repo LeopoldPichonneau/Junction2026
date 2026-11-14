@@ -1,0 +1,108 @@
+# Build-check and deploy TimeProof to the Hostinger VPS on every push to main, on CRACI runners.
+# Setup (once): CRACI GitHub app installed on the repo, and three Actions secrets:
+#   VPS_HOST (VPS address), VPS_USER (deploy), VPS_SSH_KEY (private deploy key).
+# This file has never run yet: check the "Runner tools" step on the first run.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Restart the server even if the history load is running (cuts the load!)"
+        type: boolean
+        default: false
+
+# Two merges must never deploy at the same time.
+concurrency: deploy
+
+jobs:
+  deploy:
+    runs-on: craci
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Runner tools
+        run: |
+          ssh -V || echo "WARNING: ssh missing"
+          tar --version | head -1 || echo "WARNING: tar missing"
+          python3 --version || echo "WARNING: python3 missing"
+
+      - name: Check Python files compile
+        run: |
+          set -euo pipefail
+          if ! command -v python3 >/dev/null; then
+            echo "::warning::python3 not available on this runner, compile check skipped"
+            exit 0
+          fi
+          for d in server analysis decision lens; do
+            if [ -d "$d" ]; then python3 -m compileall -q "$d"; fi
+          done
+
+      - name: Prepare SSH key
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::error::Secrets VPS_HOST / VPS_USER / VPS_SSH_KEY are not set in the repository"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          umask 077
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/timeproof_deploy
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Ship the files to the VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/timeproof_deploy -o BatchMode=yes $VPS_USER@$VPS_HOST"
+          # web/ must belong to deploy, otherwise Docker created it as root on the first compose up.
+          $SSH 'mkdir -p ~/timeproof/web ~/timeproof/data/exchange
+                if [ ! -O ~/timeproof/web ]; then echo "~/timeproof/web is not owned by $(whoami): ask the VPS admin to chown it"; exit 1; fi'
+          # Anchored excludes: never ship git history, the data files or the secrets.
+          tar czf - --exclude=./.git --exclude=./data --exclude=./.env . | $SSH 'tar xzf - -C ~/timeproof'
+
+      - name: Restart the server (unless the history load is running)
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/timeproof_deploy -o BatchMode=yes $VPS_USER@$VPS_HOST"
+          # The load runs inside the server container for hours: a rebuild would kill it.
+          # web/ is a mounted folder, so site changes are already live without a restart.
+          if $SSH 'pgrep -f load_versions.py >/dev/null' && [ "$FORCE" != "true" ]; then
+            echo "::warning::History load is running: files copied, server NOT restarted. Re-run with force=true once the load is done."
+            exit 0
+          fi
+          $SSH 'cd ~/timeproof && docker compose up -d --build'
+
+      - name: Health check
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          SSH="ssh -i $HOME/.ssh/timeproof_deploy -o BatchMode=yes $VPS_USER@$VPS_HOST"
+          # Uses the container's own Python, so curl is not needed on the VPS.
+          for i in 1 2 3 4 5 6; do
+            if $SSH 'cd ~/timeproof && docker compose exec -T server python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(\"http://localhost:8000/api/health\", timeout=5).status == 200 else 1)"'; then
+              echo "API healthy"; exit 0
+            fi
+            echo "Not ready yet ($i/6), retrying in 10 s"; sleep 10
+          done
+          echo "::error::/api/health never answered"; exit 1
+
+      - name: Remove the SSH key
+        if: always()
+        run: rm -f ~/.ssh/timeproof_deploy
