@@ -138,7 +138,8 @@ def case(rev_id: int):
         "investigator": None if not a else {
             "model": a["model"], "report": nem.get("report"), "signals": nem.get("signals", []),
             "image_findings": nem.get("image_findings")},
-        "decider": {"model": d.get("model") or os.environ.get("GEMINI_MODEL") or "gemini",
+        # decision/decide.py writes the model under "decider_model".
+        "decider": {"model": d.get("decider_model") or d.get("model") or os.environ.get("GEMINI_MODEL") or "gemini",
                     "decision": row["decision"], "explanation": d.get("explanation")},
         "exposure": {"live_from": exp.get("live_from") or day(row["edited_at"]),
                      "live_until": exp.get("live_until"),
