@@ -48,6 +48,8 @@ NEW_ACCOUNT_DAYS = 7
 
 FILE_PREFIX = re.compile(r"\[\[\s*(Tiedosto|Kuva|File|Image)\s*:", re.I)
 REF_TAG = re.compile(r"<ref[\s>]", re.I)
+INVALID_FILE_NAME = re.compile(r"[\[\]{}<>|#\n]")
+PLACEHOLDER_FILES = {"esimerkki.jpg", "example.jpg"}
 
 # Display options of an image link: they are not part of the caption.
 IMAGE_OPTIONS = {
@@ -139,7 +141,8 @@ def images(text: str) -> dict[str, str]:
     for _, _, inner in file_links(text):
         parts = split_top_level(inner)
         name = normalize_file_name(parts[0])
-        if not name:
+        # Skip broken links and the sample file the edit toolbar inserts ("Esimerkki.jpg").
+        if not name or INVALID_FILE_NAME.search(name) or name.lower() in PLACEHOLDER_FILES:
             continue
         captions = [p for p in parts[1:] if p.strip() and not is_image_option(p)]
         out[name] = clean_inline(captions[-1]) if captions else ""
