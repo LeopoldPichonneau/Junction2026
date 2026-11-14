@@ -1710,20 +1710,21 @@ const KIND_DEFINITIONS = {
   normal: "None of the patterns above.",
 };
 const share = (part, whole) => (whole ? `${Math.round((part / whole) * 100)}%` : "–");
-const shortCode = (hash) => String(hash || "").slice(0, 8);
+const shortCode = (id) => String(id || "").slice(0, 8);
+const monthText = (m) => (m ? monthLabel(m) : "");
 
 function accountItem(a) {
   const cases = a.published_cases || [];
   return el(
     "li",
-    { class: "card account", id: `account-${a.account_hash}` },
+    { class: "card account", id: `account-${a.account_id}` },
     el(
       "div",
       { class: "meta" },
       el("span", { class: "tag", text: ACCOUNT_LABELS[a.kind] || a.kind }),
-      el("span", { class: "account-code", title: "Anonymous code: the account name is never shown", text: `Account ${shortCode(a.account_hash)}` }),
+      el("span", { class: "account-code", title: "Anonymous code: the account name is never shown", text: `Account ${shortCode(a.account_id)}` }),
       el("span", { text: a.ip_editor ? "No account (IP address, not shown)" : "Registered account" }),
-      a.first_seen ? el("span", { text: a.first_seen === a.last_seen ? `Active on ${formatDate(a.first_seen)}` : `Active ${formatDate(a.first_seen)} – ${formatDate(a.last_seen)}` }) : null
+      a.first_seen ? el("span", { text: a.first_seen === a.last_seen ? `Active in ${monthText(a.first_seen)}` : `Active ${monthText(a.first_seen)} – ${monthText(a.last_seen)}` }) : null
     ),
     el("ul", { class: "plain account-reasons" }, (a.reasons || []).map((r) => el("li", { text: r }))),
     el("p", { class: "meta", text: `${fmt(a.edits)} edits on ${fmt(a.articles)} articles (${fmt(a.sensitive_articles)} sensitive) · ${fmt(a.reverted)} reverted by another account` }),

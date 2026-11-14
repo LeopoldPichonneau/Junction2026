@@ -368,6 +368,15 @@ def case_diff(rev_id: int):
 
 
 ACCOUNT_KINDS = ("throwaway", "bot_like", "single_purpose", "declared_bot", "normal")
+# account_hash is sha256(name) with no key: anyone could hash a known name, or try every IP
+# address, and find it. The public page shows another code, keyed with a server-side secret
+# (ACCOUNT_ID_KEY in .env; without it, a random key that changes when the server restarts).
+_ACCOUNT_ID_KEY = (os.environ.get("ACCOUNT_ID_KEY") or os.urandom(32).hex()).encode()
+
+
+def public_account_id(account_hash: str) -> str:
+    import hmac
+    return hmac.new(_ACCOUNT_ID_KEY, account_hash.encode(), "sha256").hexdigest()[:12]
 
 
 @app.get("/api/accounts")
@@ -410,11 +419,13 @@ def accounts():
         s["on_sensitive"] += bool(d.get("sensitive_articles"))
         # Every account with an unusual pattern is listed; official bots and ordinary accounts are only counted.
         if k not in ("normal", "declared_bot"):
-            listed.append({"account_hash": p["account_hash"], "kind": k, "score": p["score"],
+            listed.append({"account_id": public_account_id(p["account_hash"]), "kind": k, "score": p["score"],
                            "reasons": d.get("reasons") or [], "ip_editor": bool(d.get("anonymous")),
                            "edits": d.get("edits"), "articles": d.get("articles"),
                            "sensitive_articles": d.get("sensitive_articles"), "reverted": d.get("reverted"),
-                           "first_seen": d.get("first_seen"), "last_seen": d.get("last_seen"),
+                           # Months only: exact days would help match an IP editor in Wikipedia's history.
+                           "first_seen": str(d.get("first_seen") or "")[:7] or None,
+                           "last_seen": str(d.get("last_seen") or "")[:7] or None,
                            "published_cases": published.get(p["account_hash"], [])})
     for k, s in kinds.items():
         s.update({key: int((pipeline.get(k) or {}).get(key) or 0) for key in ("candidates", "examined", "suspicious", "published")})
