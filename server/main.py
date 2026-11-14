@@ -367,6 +367,66 @@ def case_diff(rev_id: int):
             "links": links(rev_id)}
 
 
+ACCOUNT_KINDS = ("throwaway", "bot_like", "single_purpose", "declared_bot", "normal")
+
+
+@app.get("/api/accounts")
+def accounts():
+    """Who makes the edits: the account profiles of decision/accounts.py, by kind, and every
+    account with an unusual pattern. Accounts are only ever shown by their anonymous hash, never
+    by name, and only published cases are linked (never the test campaign)."""
+    from collections import defaultdict
+    blank = lambda k: {"kind": k, "accounts": 0, "anonymous": 0, "edits": 0, "reverted": 0, "on_sensitive": 0,
+                       "candidates": 0, "examined": 0, "suspicious": 0, "published": 0}
+    with db() as cur:
+        cur.execute("SELECT account_hash, kind, score, data FROM account_profile")
+        profiles = cur.fetchall()
+        # What happened to each kind's edits in the pipeline: found by the rules, examined,
+        # judged suspicious by the investigator, published.
+        cur.execute("SELECT p.kind, COUNT(*) AS candidates, COUNT(a.rev_id) AS examined, "
+                    "COALESCE(SUM(a.suspicious = 1), 0) AS suspicious, "
+                    "COALESCE(SUM(d.decision = 'flag' AND d.publish = 1), 0) AS published "
+                    "FROM candidate c JOIN account_profile p ON p.account_hash = c.account_hash "
+                    "LEFT JOIN analysis a ON a.rev_id = c.rev_id LEFT JOIN decision d ON d.rev_id = c.rev_id "
+                    "WHERE c.synthetic = 0 GROUP BY p.kind")
+        pipeline = {r["kind"]: r for r in cur.fetchall()}
+        cur.execute("SELECT c.account_hash, c.rev_id, c.title, c.edited_at, d.data AS d_data "
+                    f"FROM decision d JOIN candidate c USING (rev_id) WHERE {PUBLIC} AND c.account_hash IS NOT NULL "
+                    "ORDER BY c.edited_at")
+        published = defaultdict(list)
+        for r in cur.fetchall():
+            published[r["account_hash"]].append({"rev_id": r["rev_id"], "title": r["title"], "date": day(r["edited_at"]),
+                                                 "headline_en": j(r["d_data"]).get("headline_en")})
+
+    kinds = {k: blank(k) for k in ACCOUNT_KINDS}
+    listed = []
+    for p in profiles:
+        d, k = j(p["data"]), p["kind"]
+        s = kinds.setdefault(k, blank(k))
+        s["accounts"] += 1
+        s["anonymous"] += bool(d.get("anonymous"))
+        s["edits"] += int(d.get("edits") or 0)
+        s["reverted"] += int(d.get("reverted") or 0)
+        s["on_sensitive"] += bool(d.get("sensitive_articles"))
+        # Every account with an unusual pattern is listed; official bots and ordinary accounts are only counted.
+        if k not in ("normal", "declared_bot"):
+            listed.append({"account_hash": p["account_hash"], "kind": k, "score": p["score"],
+                           "reasons": d.get("reasons") or [], "ip_editor": bool(d.get("anonymous")),
+                           "edits": d.get("edits"), "articles": d.get("articles"),
+                           "sensitive_articles": d.get("sensitive_articles"), "reverted": d.get("reverted"),
+                           "first_seen": d.get("first_seen"), "last_seen": d.get("last_seen"),
+                           "published_cases": published.get(p["account_hash"], [])})
+    for k, s in kinds.items():
+        s.update({key: int((pipeline.get(k) or {}).get(key) or 0) for key in ("candidates", "examined", "suspicious", "published")})
+    listed.sort(key=lambda a: (-len(a["published_cases"]), -(a["score"] or 0), -(a["edits"] or 0)))
+    total_published = sum(s["published"] for s in kinds.values())
+    return {"profiled": len(profiles), "kinds": [kinds[k] for k in kinds if kinds[k]["accounts"]],
+            "published_total": total_published, "accounts": listed,
+            "notes": {"privacy": "Accounts are shown by an anonymous hash, never by name.",
+                      "hint": "A pattern is a hint, not proof: the same rhythm can come from a careful human editor.",
+                      "ip_editor": "Edits made without an account are recorded under an IP address; the address is never shown."}}
+
+
 @app.get("/api/quality")
 def quality():
     return exchange_json("quality.json")
