@@ -1,0 +1,20 @@
+{
+  "about": "Demo cases whose time online was checked by hand by Nathanaël, sentence by sentence in the raw wikitext (UTC). exposure.py uses these instead of the automatic estimate. Start and end come from the revision ids; the dates below are what was checked and must match the parquet timestamps, or the case is not overridden.",
+  "cases": [
+    {"rev_id": 23172306, "note": "Suomen sisällissota, white terror passage removed",
+     "ended_by_rev_id": 23191876, "checked": {"from": "2025-04-14T21:55", "until": "2025-04-23T16:02"}},
+    {"rev_id": 18437730, "note": "Noormarkku, 'punakapinan'",
+     "ended_by_rev_id": 19087033, "checked": {"from": "2019-09-27", "until": "2020-08-09"}},
+    {"rev_id": 19127101, "note": "Noormarkku, 'punakapinan' put back",
+     "ended_by_rev_id": 21348377, "checked": {"from": "2020-08-29", "until": "2023-03-17"}},
+    {"rev_id": 18921526, "note": "Kuivaniemi, 'jääkäriluutnantti vapaussodassa'; removed for one day then restored",
+     "ended_by_rev_id": null, "gaps": [[22368218, 22368362]],
+     "checked": {"from": "2020-05-12", "until": null, "gaps": [["2024-05-04", "2024-05-05"]]}},
+    {"rev_id": 24139572, "note": "Karjala, map 'Pian Suomessa'",
+     "ended_by_rev_id": 24139824, "checked": {"from": "2026-07-27", "until": "2026-07-27"}},
+    {"rev_id": 6590468, "note": "Himanka, passage on discrimination removed; still absent",
+     "ended_by_rev_id": null, "checked": {"from": "2009-04-18", "until": null}},
+    {"rev_id": 24234965, "note": "Suomen sisällissota, Sisällissota -> Vapaussota",
+     "ended_by_rev_id": 24234990, "checked": {"from": "2026-09-12T12:41", "until": "2026-09-12T12:48"}}
+  ]
+}
