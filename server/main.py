@@ -80,11 +80,47 @@ def exchange_json(name: str) -> dict:
 
 
 def cloudinary_cards() -> dict:
-    """{rev_id: line of data/exchange/cloudinary.jsonl} (written by analysis/cloudinary_cards.py)."""
+    """{rev_id: what Cloudinary holds for the case} from data/exchange/cloudinary.jsonl
+    (analysis/cloudinary_cards.py). A case can have several lines (archived picture, then the
+    before / after pictures): they are merged, the last value of each field wins."""
     def parse(text):
-        lines = (json.loads(l) for l in text.splitlines() if l.strip())
-        return {int(l["rev_id"]): l for l in lines if l.get("rev_id")}
+        merged: dict[int, dict] = {}
+        for raw in text.splitlines():
+            if not raw.strip():
+                continue
+            line = json.loads(raw)
+            if line.get("rev_id"):
+                merged.setdefault(int(line["rev_id"]), {}).update({k: v for k, v in line.items() if v is not None})
+        return merged
     return read_cached(DATA_DIR / "exchange" / "cloudinary.jsonl", parse) or {}
+
+
+def visual_evidence(rev_id: int, image: dict) -> dict | None:
+    """The "Visual evidence" block of a case: before/after pictures and archived copies.
+    A picture is only sent with its author and licence, like the Wikimedia thumbnail."""
+    cl = cloudinary_cards().get(rev_id)
+    if not cl:
+        return None
+    credited = bool(image.get("author") and image.get("license"))
+    out = {"compare": None, "archive": []}
+    if credited and cl.get("before_url") and cl.get("after_url"):
+        # "replaced": two different pictures; "recaptioned": the same picture, other words under it.
+        out["compare"] = {"kind": cl.get("compare") or "recaptioned",
+                          **{k: cl.get(k) for k in ("before_url", "after_url", "before_caption", "after_caption",
+                                                    "before_caption_en", "after_caption_en")},
+                          "before_file": cl.get("before_file"), "after_file": cl.get("file"),
+                          # True: the earlier picture is still in the article, the edit only moved it.
+                          "before_moved": bool(cl.get("before_moved"))}
+    if credited and cl.get("before_archived_url") and cl.get("before_author") and cl.get("before_license"):
+        out["archive"].append({"side": "before", "file": cl.get("before_file"),
+                               "archived_url": cl["before_archived_url"], "original_url": cl.get("before_original_url"),
+                               "author": cl["before_author"], "license": cl["before_license"], "phash": cl.get("before_phash")})
+    if credited and (cl.get("archived_url") or cl.get("image_url")):
+        out["archive"].append({"side": "after", "file": cl.get("file") or image.get("file"),
+                               "archived_url": cl.get("archived_url") or cl.get("image_url"),
+                               "original_url": cl.get("original_url"),
+                               "author": image.get("author"), "license": image.get("license"), "phash": cl.get("phash")})
+    return out if out["compare"] or out["archive"] else None
 
 
 def translations() -> dict:
@@ -161,7 +197,10 @@ def case_summary(row: dict) -> dict:
             "image_license": image.get("license") if shown_thumb(image) else None,
             # Same rule for the Cloudinary copy of that image.
             "image_auto_url": card.get("image_auto_url") if shown_thumb(image) else None,
-            "evidence_card_url": card.get("evidence_card_url")}
+            # A before / after slider exists for this case (its pictures are in the case itself).
+            "has_compare": bool(shown_thumb(image) and card.get("before_url") and card.get("after_url")),
+            # The "after" side, with its caption and credit written on it: used as the link preview.
+            "compare_after_url": card.get("after_url") if shown_thumb(image) else None}
 
 
 CASE_SELECT = ("SELECT c.rev_id, c.page_id, c.title, c.kind, c.edited_at, c.account_hash, "
@@ -234,6 +273,7 @@ def case(rev_id: int):
         "account": None if not acc else {"kind": acc["kind"], "reasons": j(acc["data"]).get("reasons", [])},
         # Only the hand-translated demo cases have one; never machine-made here.
         "translation": translations().get(rev_id),
+        "visual": visual_evidence(rev_id, image or {}),
         "links": links(rev_id),
     })
     return out
@@ -399,7 +439,7 @@ def case_page(rev_id: int, request: Request):
     summary = s["summary_en"] or "A change to Finnish Wikipedia that TimeProof can prove."
     if len(summary) > 200:
         summary = summary[:197].rsplit(" ", 1)[0] + "…"
-    image = s["evidence_card_url"] or s["image_auto_url"] or s["image_thumb"]
+    image = s["compare_after_url"] or s["image_auto_url"] or s["image_thumb"]
     e = lambda v: html.escape(v, quote=True)
     # Behind Traefik the request looks like plain http: prefer the public host when it is set.
     host = os.environ.get("PUBLIC_HOST")
