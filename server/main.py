@@ -94,7 +94,10 @@ def case_summary(row: dict) -> dict:
             "confidence": row["confidence"], "days_live": row["days_live"],
             "readers_est": row["readers_est"],
             "still_online": None if row["still_online"] is None else bool(row["still_online"]),
-            "image_thumb": shown_thumb(image)}
+            "image_thumb": shown_thumb(image),
+            # The list shows a thumbnail only with its credit: send it along, never one without the other.
+            "image_author": image.get("author") if shown_thumb(image) else None,
+            "image_license": image.get("license") if shown_thumb(image) else None}
 
 
 CASE_SELECT = ("SELECT c.rev_id, c.page_id, c.title, c.kind, c.edited_at, c.account_hash, "
@@ -134,7 +137,7 @@ def case(rev_id: int):
     image = c.get("image")
     exp = d.get("exposure") or {}
     out = case_summary(row)
-    out.pop("image_thumb")
+    out.pop("image_thumb"); out.pop("image_author"); out.pop("image_license")
     out.pop("days_live"); out.pop("readers_est"); out.pop("still_online")
     out.update({
         "added": c.get("added"), "removed": c.get("removed"),
