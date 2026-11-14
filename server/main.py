@@ -208,6 +208,9 @@ def article(page_id: int, as_of: str | None = None):
 @app.get("/api/articles/{page_id}/timeline")
 def article_timeline(page_id: int):
     with db() as cur:
+        cur.execute("SELECT 1 FROM article_stats WHERE page_id = %s", (page_id,))
+        if not cur.fetchone():
+            raise HTTPException(404, "article not found")
         cur.execute("SELECT month, edits, reverts FROM article_timeline WHERE page_id = %s ORDER BY month",
                     (page_id,))
         return cur.fetchall()
