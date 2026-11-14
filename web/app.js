@@ -778,7 +778,8 @@ async function pageLens() {
   const box = document.getElementById("lens");
   let info;
   try {
-    info = await fetchJson("lens.json");
+    // The bookmark is rebuilt from time to time: never offer a cached, older copy.
+    info = await fetchJson(`lens.json?t=${Date.now()}`);
   } catch (err) {
     box.replaceChildren(el("p", { class: "empty", text: "The Lens is not built yet." }));
     return;
