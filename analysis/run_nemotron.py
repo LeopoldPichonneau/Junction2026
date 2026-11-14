@@ -33,12 +33,18 @@ CANDIDATES = "data/exchange/candidates.jsonl"
 ANALYSIS = "data/exchange/analysis.jsonl"
 FOCUS_PAGE = 1150               # Suomen sisällissota: the core of the demo
 MAX_WORKERS = 4                 # shared server: never more than 4 calls at once
+STOP_AFTER_FAILURES = 10        # with 4 parallel calls, a short burst of 500s already gives 3-4 failures
 
+PROMPT_VERSION = "v4"           # history and measured reasons: analysis/PROMPT-LOG.md
 INVESTIGATOR_PROMPT = """You investigate one edit to a Finnish Wikipedia article about the history of Finland.
 Texts are in Finnish; reason over them and answer in English.
 Decide whether this edit looks like an attempt to push a narrative (one-sided reframing,
 misleading image or caption, removal of sources, coordinated editing) rather than ordinary
 editing (new facts, style, sourcing, vandalism cleanup). Be conservative: most edits are ordinary.
+Obvious vandalism (insults, slurs, nonsense words, jokes, blanking) is not narrative pushing:
+nobody would believe it, and it is usually reverted within minutes. For vandalism, answer
+"suspicious": false and put "vandalism" in "signals". Keep "suspicious": true for edits that could
+plausibly change what a reader believes about history.
 The edit is given as JSON: "added" and "removed" are the words that changed, with separate
 passages joined by " … "; "image" describes an image change with the old and new captions;
 "refs_removed" is the number of <ref> citations removed.
@@ -100,7 +106,9 @@ def ask_nemotron(prompt: str, edit: str, image_url: str | None) -> dict:
     if use_mock():
         time.sleep(0.05)
         return mock_report(image_url)
-    if image_url and os.environ.get("NEMOTRON_IMAGE_AS_DATA", "false").lower() == "true":
+    # Sent inline by default: when the server fetched Wikimedia links itself, 47 of 104 image
+    # calls failed with HTTP 500 on Saturday; the same edits passed once sent inline.
+    if image_url and os.environ.get("NEMOTRON_IMAGE_AS_DATA", "true").lower() == "true":
         image_url = image_as_data_url(image_url)
     content = edit if not image_url else [
         {"type": "text", "text": edit},
@@ -110,7 +118,8 @@ def ask_nemotron(prompt: str, edit: str, image_url: str | None) -> dict:
     r = httpx.post(
         CONFIG["base_url"].rstrip("/") + "/chat/completions",
         headers={"Authorization": f"Bearer {CONFIG['key']}"},
-        json={"model": CONFIG["model"], "temperature": 0.6, "top_p": 0.95, "max_tokens": 2000,
+        # The model reasons before answering: 2000 tokens left empty or cut-off answers on Saturday.
+        json={"model": CONFIG["model"], "temperature": 0.6, "top_p": 0.95, "max_tokens": 6000,
               "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": content}]},
         # 1-3 s when the shared server is quiet, but we measured 20-220 s under load on Saturday.
         timeout=300,
@@ -143,6 +152,7 @@ def clean_report(raw: dict, has_image: bool) -> dict:
         "report": str(raw.get("report", "")),
         "image_findings": findings,
         "model": "mock" if use_mock() else CONFIG["model"],
+        "prompt_version": PROMPT_VERSION,
     }
 
 
@@ -154,7 +164,7 @@ def investigate(row: dict) -> dict:
     image_url = image.get("thumb_url") if image else None
     message = json.dumps(edit, ensure_ascii=False)
     last_error = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             started = time.time()
             raw = ask_nemotron(INVESTIGATOR_PROMPT, message, image_url)
@@ -163,7 +173,7 @@ def investigate(row: dict) -> dict:
             return {**row, "nemotron": report}
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError) as e:
             last_error = e
-            time.sleep(3 * (attempt + 1))
+            time.sleep(10 * (attempt + 1))     # 500 errors came in bursts: give the server time
     raise RuntimeError(f"rev {row['rev_id']}: {type(last_error).__name__}: {str(last_error)[:200]}")
 
 
@@ -187,6 +197,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int, required=True, help="how many new candidates to send (no default on purpose)")
     parser.add_argument("--rev-id", type=int, action="append", help="only these edits")
     parser.add_argument("--page-id", type=int, action="append", help="only these articles")
+    parser.add_argument("--kind", action="append", choices=["image", "sources", "framing", "coordination"],
+                        help="only these kinds of candidates")
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     load_env()
@@ -204,7 +216,8 @@ def main() -> None:
     rows = [r for r in read_jsonl(args.candidates)
             if r["rev_id"] not in done
             and (not args.rev_id or r["rev_id"] in args.rev_id)
-            and (not args.page_id or r["page_id"] in args.page_id)]
+            and (not args.page_id or r["page_id"] in args.page_id)
+            and (not args.kind or r["kind"] in args.kind)]
     rows.sort(key=priority)
     rows = rows[:args.limit]
     print(f"{len(done)} already in {args.out}; sending {len(rows)}" + (" (MOCK)" if use_mock() else ""))
@@ -219,9 +232,9 @@ def main() -> None:
                 failed += 1
                 failed_in_a_row += 1
                 print("  failed:", e)      # not written: it will be retried on the next run
-                if failed_in_a_row >= 3:
+                if failed_in_a_row >= STOP_AFTER_FAILURES:
                     # The shared server is probably down: stop instead of hammering it.
-                    print("3 failures in a row: stopping. Check the server, then run again.")
+                    print(f"{STOP_AFTER_FAILURES} failures in a row: stopping. Check the server, then run again.")
                     pool.shutdown(cancel_futures=True)
                     break
                 continue

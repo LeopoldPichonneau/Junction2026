@@ -52,12 +52,13 @@ INVALID_FILE_NAME = re.compile(r"[\[\]{}<>|#\n]")
 PLACEHOLDER_FILES = {"esimerkki.jpg", "example.jpg"}
 
 # Display options of an image link: they are not part of the caption.
+CAPTION_SHOWN = {"thumb", "thumbnail", "frame", "framed", "pienoiskuva", "pienois", "kehys", "kehystetty"}
 IMAGE_OPTIONS = {
     "thumb", "thumbnail", "frame", "framed", "frameless", "border", "left", "right",
     "center", "centre", "none", "upright", "baseline", "middle", "sub", "super",
     "top", "text-top", "bottom", "text-bottom",
     "pienoiskuva", "pienois", "kehys", "kehyksetön", "reunus", "vasen", "oikea",
-    "keskitetty", "keskellä", "keski", "ei mitään", "pysty", "pystykuva",
+    "keskitetty", "keskellä", "keski", "ei mitään", "pysty", "pystykuva", "kehystetty",
 }
 IMAGE_OPTION_PATTERN = re.compile(
     r"^(\d*\s*x?\s*\d+\s*px|(alt|link|linkki|page|sivu|class|lang|upright|pystykuva)\s*=.*)$",
@@ -144,8 +145,11 @@ def images(text: str) -> dict[str, str]:
         # Skip broken links and the sample file the edit toolbar inserts ("Esimerkki.jpg").
         if not name or INVALID_FILE_NAME.search(name) or name.lower() in PLACEHOLDER_FILES:
             continue
+        # Only thumb/frame images show their text under the picture; otherwise it is a
+        # hover tooltip (e.g. leftovers of a copied infobox), not a caption readers see.
+        visible = any(p.strip().lower() in CAPTION_SHOWN for p in parts[1:])
         captions = [p for p in parts[1:] if p.strip() and not is_image_option(p)]
-        out[name] = clean_inline(captions[-1]) if captions else ""
+        out[name] = clean_inline(captions[-1]) if captions and visible else ""
     return out
 
 

@@ -33,7 +33,8 @@ Avec `USE_MOCK=true` dans `.env`, aucune requête n'est envoyée : `fetch_images
   (vapaussota, sisällissota, kansalaissota, luokkasota, punakapina, veljessota, toutes déclinaisons) → `image` pour une
   image ajoutée ou retirée. `image` et `refs_removed` sont remplis dès qu'ils existent, quel que soit `kind`.
 - Légendes : découpage aux `|` hors des `[[liens]]`, options d'affichage écartées (`thumb`, `pienoiskuva`, `250px`…),
-  changements de ponctuation, de majuscules ou d'espaces ignorés.
+  changements de ponctuation, de majuscules ou d'espaces ignorés. Seul le texte **affiché sous l'image** compte
+  (avec `thumb`, `frame`, `pienoiskuva`…) : sans ces options, c'est un simple texte de survol.
 - `added` / `removed` : les mots changés, paragraphe par paragraphe, passages séparés par « … », coupés à 1 500 caractères.
 - `account_hash` = `sha256(user)[:16]`, même formule que `decision/`. Les noms de compte et adresses IP sont aussi retirés
   du champ `comment`.
@@ -44,25 +45,32 @@ Avec `USE_MOCK=true` dans `.env`, aucune requête n'est envoyée : `fetch_images
 **2. `fetch_images.py`** demande à l'API de Wikipédia (lots de 50, User-Agent du `.env`) la miniature (800 px), l'auteur
 et la licence de chaque image. Les fichiers déjà dans `images.jsonl` ne sont pas redemandés. Si l'auteur manque
 (fréquent pour les vieilles photos du domaine public), on prend le champ « Credit ».
+Un même nom de fichier peut montrer aujourd'hui une autre image qu'à l'époque (nouvelle version, ou fichier local
+supprimé puis remplacé par un fichier Commons du même nom) : on garde toutes les versions, et chaque candidat reçoit
+la miniature de **la version en ligne le jour de la modification** (`image.version_timestamp`). S'il n'y en avait pas
+encore, `thumb_url`, `author` et `license` valent `null` : ni le site ni Nemotron ne doivent montrer l'image d'aujourd'hui.
 
 **3. `run_nemotron.py`** envoie chaque candidat à Nemotron (texte + miniature s'il y en a une). Ordre : légendes
 modifiées, images remplacées, sources, framing, images ajoutées/retirées ; l'article 1150 d'abord dans chaque groupe.
 `--limit` est obligatoire (pas de lancement massif par erreur), 2 appels en parallèle par défaut, 4 au maximum
 (serveur partagé). Chaque réponse est écrite dès qu'elle arrive ; au redémarrage, les `rev_id` déjà présents sont sautés.
-Le script s'arrête après 3 échecs de suite. `synthetic`, `account_hash` et les identifiants ne sont pas envoyés au modèle.
+Le script s'arrête après 10 échecs de suite. Les miniatures sont téléchargées par le script et envoyées
+**dans le message** : quand le serveur allait les chercher lui-même chez Wikimedia, la moitié des appels avec image
+échouaient (`NEMOTRON_IMAGE_AS_DATA=false` dans `.env` pour revenir aux liens). Consigne actuelle : v4 (le vandalisme
+évident n'est pas « suspect »), voir `PROMPT-LOG.md`. `synthetic`, `account_hash` et les identifiants ne sont pas envoyés au modèle.
 
 ## Champs ajoutés aux formats (à signaler à Léopold pour l'import)
 
-- `candidates.jsonl`, dans `image` : `author`, `license` (remplis par l'étape 2 ; le site en a besoin).
+- `candidates.jsonl`, dans `image` : `author`, `license`, `version_timestamp` (remplis par l'étape 2 ; le site en a besoin).
 - `analysis.jsonl`, dans `nemotron` : `model` (colonne `model` de la table `analysis`) et `seconds` (durée de l'appel).
-- Nouveau fichier `images.jsonl` : `file`, `found`, `thumb_url`, `description_url` (page Commons), `author`, `credit`,
-  `license`, `license_url`.
+- Nouveau fichier `images.jsonl` : `file`, `found`, `thumb_url`, `versions` (date + miniature de chaque version),
+  `description_url` (page Commons), `author`, `credit`, `license`, `license_url`.
 - Limite connue : pour une image `replaced`, seul le **nouveau** fichier est gardé (`file`).
 
 ## État au samedi 14/11, 13h30 (heure d'Helsinki)
 
-- Étapes 1 et 2 faites sur le fichier 01 : 5 693 candidats (3 696 image, 1 519 sources, 478 framing), 1 881 images
-  trouvées sur 2 315 (les autres ont été supprimées de Wikipédia).
+- Étapes 1 et 2 faites sur le fichier 01 : 5 658 candidats (3 661 image, 1 519 sources, 478 framing), 1 872 images
+  trouvées sur 2 312 (les autres ont été supprimées de Wikipédia) ; 3 103 candidats ont la miniature de l'époque.
 - Étape 3 prête et testée en mode simulé, pas encore lancée en vrai. **Le serveur Nemotron est très lent** : vers 14h15,
   1 appel a mis 219 s, puis 22 à 27 s par appel (contre 1-2 s vendredi). Il n'est pas en panne, il est chargé : les scripts
   attendent maintenant jusqu'à 5 min. À ce rythme, ≈ 2 à 3 cas par minute avec 2 appels en parallèle : il faut bien
