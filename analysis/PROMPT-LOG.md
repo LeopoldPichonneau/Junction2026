@@ -111,16 +111,21 @@ rev 900000012: "a black-and-white 19th-century view of Tammerkoski rapids with f
 
 ## v1 vs v2 on the same edits
 
-**TODO**: run once the main batch is over (the server is shared):
-
-```bash
-python analysis/compare_prompts.py --rev-id 24234965 --rev-id 463331 --rev-id 466136
-python analysis/compare_prompts.py --show
-```
+Run on 14/11 with `python analysis/compare_prompts.py --rev-id 24234965 --rev-id 18437730 --rev-id 2147811 --rev-id 463331`
+(v1 answers in `data/exchange/prompt-v1.jsonl`, 2-9 s per call). Current answers are v4, except 463331 (v2/v3).
 
 Limit of this comparison: `compare_prompts.py` sends v1 through the v2 call path (system message,
 2000 tokens, robust parsing). It tests changes 2, 3 and 4, not 1, 5 and 6.
 
-| rev_id | v1 suspicious | v2 suspicious | Difference seen |
-|---|---|---|---|
-| | | | |
+| rev_id | Edit | v1 suspicious | current suspicious | Difference seen |
+|---|---|---|---|---|
+| 24234965 | 1150, "Sisällissota" → "Vapaussota" | yes | yes (v4) | None: both quote the terms with translations and name the White framing |
+| 18437730 | Noormarkku, "kansalaissodan" → "punakapinan" | yes | yes (v4) | None: both explain *punakapina* as a White-side term |
+| 2147811 | Tarja Halonen, invented accusations and slurs | **yes** | **no** (v4, "vandalism") | v1 flags crude vandalism as narrative pushing; v4 does not |
+| 463331 | 1150 caption, 80 000 → 75 000 prisoners | no | no (v2) | None |
+
+Honest reading: on real reframing, Friday's prompt was already good (Finnish understanding,
+quotes, framing explanation). Change 3 (ask for quotes) made no visible difference on these
+edits. The measurable gains come from the pipeline around the model (changes 9-12, 15: full
+answers, the image of the day, visible captions, images sent inline) and from v4 (vandalism
+kept out of "suspicious").
