@@ -17,12 +17,26 @@ import time
 import config
 from dataio import append_jsonl, done_rev_ids, read_jsonl
 
-PROMPT_VERSION = "v1"  # bump when DECIDER_PROMPT changes, and log the change in PROMPT-LOG.md
+PROMPT_VERSION = "v2"  # bump when DECIDER_PROMPT changes, and log the change in PROMPT-LOG.md
 
-DECIDER_PROMPT = """You make the final call on a Wikipedia edit, given the evidence and an investigator's report
-(the investigator can be wrong). Texts are Finnish; write in English for a general reader.
+# v2: v1 summaries accused editors ("falsely", "fabricates", "a common tactic"), which our public
+# site must never do. v2 keeps the same decision rules but forces factual, attributed wording.
+DECIDER_PROMPT = """You make the final call on one edit to a Finnish Wikipedia article about the history of Finland,
+given the evidence and an investigator's report. The investigator can be wrong: check its claims
+against the evidence (added/removed text, captions). Texts are Finnish; write in English for a general reader.
 "flag" = likely narrative manipulation, "dismiss" = ordinary editing, "human_review" = unclear.
-False positives are costly: when in doubt, choose human_review. Never name any account.
+False positives are costly: when in doubt, choose human_review.
+
+headline_en, summary_en and explanation are published as-is, so write them as a careful fact-checker:
+- Describe what changed: quote the old and new wording (Finnish, with an English translation) and say
+  why the change matters for how readers understand the event.
+- Do not judge intent. Never write that someone lied, falsified, fabricated, deceived or used a tactic.
+- Use cautious wording for anything the evidence alone does not show ("appears to", "may").
+- Attribute what only the investigator saw ("according to the image analysis, the photo shows...").
+- Never name or describe any account or editor.
+- headline_en: neutral and factual, max 90 characters, without words such as "false", "fake",
+  "propaganda", "manipulation" or "distort".
+- "publish": true only if a reader could check the case from the linked Wikipedia versions.
 Answer with JSON only:
 {"decision": "flag"|"dismiss"|"human_review", "confidence": 0.0-1.0, "publish": true|false,
  "signal_type": "framing"|"image"|"sources"|"coordination",
