@@ -242,7 +242,7 @@ def main() -> int:
         "<h1 style=\"font-family:Georgia,serif\">Install the TimeProof Lens</h1>\n"
         "<ol>\n<li>Show the bookmarks bar (Ctrl+Shift+B).</li>\n"
         "<li>Drag this button onto the bookmarks bar:</li>\n</ol>\n"
-        f"<p><a href=\"{html.escape(bookmarklet, quote=True)}\" style=\"display:inline-block;background:#3687eb;color:#fff;"
+        f"<p><a href=\"{html.escape(bookmarklet, quote=True)}\" style=\"display:inline-block;background:#2a6fcf;color:#fff;"
         "font-weight:600;padding:10px 20px;border-radius:999px;text-decoration:none\">TimeProof Lens</a></p>\n"
         "<ol start=\"3\">\n<li>Open a Finnish Wikipedia article, for example "
         "<a href=\"https://fi.wikipedia.org/wiki/Vuosaari\">Vuosaari</a>, and click the bookmark.</li>\n"

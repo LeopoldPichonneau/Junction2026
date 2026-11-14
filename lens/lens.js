@@ -5,7 +5,7 @@
   const DATA = /*__TIMEPROOF_DATA__*/ null;
   const ID = "timeproof-lens";
   // Colours from web/identity.md.
-  const C = { signal: "#b42318", rail: "#2b2d33", railText: "#f2f3f7", muted: "#b9bcc6", brand: "#447cbb", button: "#3687eb" };
+  const C = { signal: "#b42318", rail: "#2b2d33", railText: "#f2f3f7", muted: "#b9bcc6", brand: "#3f74b0", button: "#2a6fcf" };
   const DOT = " \u00b7 ";
 
   // A second click removes everything.
