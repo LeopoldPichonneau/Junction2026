@@ -11,7 +11,7 @@ puis les faire examiner par Nemotron. Tout se lance **depuis la racine du dépô
 | 1 | `python analysis/find_candidates.py data/versions-01.parquet` | parquet | `candidates.jsonl` (format 4.1) | ≈ 4-5 min |
 | 2 | `python analysis/fetch_images.py` | `candidates.jsonl` | `images.jsonl` + remplit `thumb_url`, `author`, `license` dans `candidates.jsonl` | ≈ 1 min |
 | 3 | `python analysis/run_nemotron.py --limit 10` | `candidates.jsonl` | `analysis.jsonl` (format 4.2) | 1-3 s par cas |
-| — | `python analysis/check_nemotron.py` | `.env` | rien : dit si le serveur Nemotron répond | < 2 min |
+| — | `python analysis/check_nemotron.py` | `.env` | rien : dit si le serveur Nemotron répond | < 10 min |
 
 - Plusieurs fichiers d'un coup : `python analysis/find_candidates.py data/versions-01.parquet data/versions-02.parquet …`
 - Un seul article pour tester : `--page-id 1150` (étapes 1 et 2), `--rev-id 24234965` (étape 3).
@@ -63,9 +63,12 @@ Le script s'arrête après 3 échecs de suite. `synthetic`, `account_hash` et le
 
 - Étapes 1 et 2 faites sur le fichier 01 : 5 693 candidats (3 696 image, 1 519 sources, 478 framing), 1 881 images
   trouvées sur 2 315 (les autres ont été supprimées de Wikipédia).
-- Étape 3 prête et testée en mode simulé, **mais le serveur Nemotron ne répond plus depuis ≈ 11h50** : avec la vraie clé,
-  les requêtes sont acceptées puis restent sans réponse ; sans clé ou avec une fausse clé, réponse immédiate « 404 page not
-  found ». Nos réglages sont identiques à la configuration officielle (adresse, modèle, clé). Voir `check_nemotron.py`.
+- Étape 3 prête et testée en mode simulé, pas encore lancée en vrai. **Le serveur Nemotron est très lent** : vers 14h15,
+  1 appel a mis 219 s, puis 22 à 27 s par appel (contre 1-2 s vendredi). Il n'est pas en panne, il est chargé : les scripts
+  attendent maintenant jusqu'à 5 min. À ce rythme, ≈ 2 à 3 cas par minute avec 2 appels en parallèle : il faut bien
+  choisir les cas (`--limit`, ordre de priorité), pas tout envoyer.
+- Sans clé ou avec une fausse clé, le serveur répond tout de suite « 404 page not found » : ce n'est **pas** le signe
+  d'une panne, seulement d'une clé absente. Nos réglages sont identiques à la configuration officielle (adresse, modèle, clé).
 - Un cas réel repéré (pas encore examiné par Nemotron) : rev 24234965 du 12/09/2026, article 1150, « Sisällissota »
   remplacé par « Vapaussota » à plusieurs endroits, dont la première phrase ; défait par la modification suivante.
 - Secours prévu mais non utilisé (pas de clé) : `NEMOTRON_PROVIDER=nvidia` + `NVIDIA_API_KEY` dans `.env`

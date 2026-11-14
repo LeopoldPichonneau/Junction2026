@@ -112,7 +112,8 @@ def ask_nemotron(prompt: str, edit: str, image_url: str | None) -> dict:
         headers={"Authorization": f"Bearer {CONFIG['key']}"},
         json={"model": CONFIG["model"], "temperature": 0.6, "top_p": 0.95, "max_tokens": 2000,
               "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": content}]},
-        timeout=90,     # a normal answer takes 1-3 s; waiting longer only hides a dead server
+        # 1-3 s when the shared server is quiet, but we measured 20-220 s under load on Saturday.
+        timeout=300,
     )
     r.raise_for_status()
     return extract_json(r.json()["choices"][0]["message"].get("content") or "")

@@ -52,12 +52,13 @@ def main() -> None:
         return f"{host} -> {ip}"
 
     def models():
-        r = httpx.get(base + "/models", headers=headers, timeout=20)
+        # Long timeouts: under load the shared server took up to 220 s to answer (Saturday).
+        r = httpx.get(base + "/models", headers=headers, timeout=300)
         return f"HTTP {r.status_code} {r.text[:120]}"
 
     def chat():
-        r = httpx.post(base + "/chat/completions", headers=headers, timeout=60,
-                       json={"model": config["model"], "max_tokens": 20,
+        r = httpx.post(base + "/chat/completions", headers=headers, timeout=300,
+                       json={"model": config["model"], "max_tokens": 200,   # room for reasoning tokens
                              "messages": [{"role": "user", "content": "Reply with the word OK."}]})
         if r.status_code != 200:
             return f"HTTP {r.status_code} {r.text[:200]}"
@@ -74,7 +75,7 @@ def main() -> None:
     elif not results[1]:
         print("-> The server address does not answer at all: server down or address changed. Ask on Discord.")
     elif not results[2] or not results[3]:
-        print("-> The machine is up but the API does not answer in time: overloaded or stuck. Ask on Discord.")
+        print("-> The machine is up but the API did not answer within 5 min: overloaded or stuck. Ask on Discord.")
     else:
         print("-> Everything answers. If a step said HTTP 401/403, the key is the problem; 429 means rate limit.")
 
