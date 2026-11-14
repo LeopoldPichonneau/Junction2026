@@ -957,7 +957,7 @@ async function pageLens() {
   box.replaceChildren(
     steps,
     el("div", { class: "lens-drag" }, button, el("span", { class: "meta", text: "← Drag me to your bookmarks bar" })),
-    info.mock ? el("p", { class: "lens-mock", text: "This Lens is built from sample data: it shows placeholder cases, not real findings." }) : null,
+    info.mock ? el("p", { class: "lens-mock", text: "This Lens is built from sample data: it shows placeholder cases, not real findings." }) : "",
     el("p", { class: "meta", text: `${info.cases} published case${info.cases === 1 ? "" : "s"} included · built ${info.built}. No data is sent anywhere: the cases are stored inside the bookmark and TimeProof never edits Wikipedia.` })
   );
 }
