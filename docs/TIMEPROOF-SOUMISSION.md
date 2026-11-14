@@ -23,7 +23,7 @@ Wikipedia is the world's memory: students, journalists and now AI models rely on
 ## What TimeProof does
 We load the full edit history of Finnish Wikipedia's *History of Finland* articles (2003–2026) into MariaDB system-versioned tables, with Wikipedia's real edit times, so any article can be read as it stood on any date.
 
-We look for four signals: framing drift (e.g. how the 1918 war is named), misleading images (a photo swapped or its caption changed — NVIDIA Nemotron *looks at the image* and checks it against the caption), removed sources, and coordinated edits across articles.
+We look for three signals: framing drift (e.g. how the 1918 war is named), misleading images (a photo swapped or its caption changed — NVIDIA Nemotron *looks at the image* and checks it against the caption), and removed sources. Account patterns (bot-like rhythm, short-lived or single-topic accounts) are profiled without naming anyone.
 
 For each case we compute an **exposure score**: how long the misleading version stayed online, and roughly how many readers saw it.
 
