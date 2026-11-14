@@ -49,6 +49,18 @@
     const n = Math.round(d); return n + (n === 1 ? " day" : " days");
   };
   const exposure = (c) => (c.online ? "still online after " : "online for ") + duration(c.days) + DOT + readers(c.readers);
+  // What the outline means differs: the suspicious text itself (still online), or the original
+  // text that an edit had removed and that came back when the edit was undone.
+  const story = (c) => {
+    if (c.kind === "image") {
+      return c.online
+        ? "Changed on " + c.date + DOT + "still online after " + duration(c.days)
+        : "Changed on " + c.date + DOT + "that version stayed online " + duration(c.days) + ", then was undone";
+    }
+    return c.side === "added"
+      ? "Added on " + c.date + DOT + "still online after " + duration(c.days)
+      : "On " + c.date + " an edit removed or rewrote this passage. That version stayed online " + duration(c.days) + ", then this text came back.";
+  };
   const norm = (s) => s.replace(/\s+/g, " ").trim().toLowerCase();
   // File names: "Tiedosto:General_Strike_Helsinki_1917.jpg" -> "General strike helsinki 1917.jpg" style key.
   const fileKey = (s) => {
@@ -83,8 +95,8 @@
       const block = el("div", i ? "border-top:1px solid rgba(255,255,255,.15);margin-top:10px;padding-top:10px" : "");
       block.append(
         el("div", "font:700 15px/1.3 Georgia,serif;margin-bottom:4px", c.headline),
-        el("div", "color:" + C.muted, (c.kind === "image" ? "Caption changed on " : "Edited on ") + c.date),
-        el("div", "font-weight:600;margin:4px 0 8px", exposure(c))
+        el("div", "color:" + C.muted, c.side ? story(c) : (c.kind === "image" ? "Caption changed on " : "Edited on ") + c.date),
+        el("div", "font-weight:600;margin:4px 0 8px", c.side ? readers(c.readers) + " saw that version" : exposure(c))
       );
       const link = el("a", "display:inline-block;background:" + C.button + ";color:#fff;font-weight:600;padding:5px 12px;border-radius:999px;text-decoration:none", "Read the evidence");
       link.href = DATA.site.replace(/\/$/, "") + "/case.html?rev_id=" + encodeURIComponent(c.rev_id);
@@ -132,7 +144,8 @@
 
   // ---------- Match cases on the page ----------
   const figures = [...content.querySelectorAll("figure, .thumb, .infobox img")];
-  const paragraphs = [...content.querySelectorAll("p")].map((p) => {
+  // Passages also live in lists, tables and captions, not only in paragraphs.
+  const paragraphs = [...content.querySelectorAll("p, li, dd, td, th, figcaption, blockquote")].map((p) => {
     const clone = p.cloneNode(true);
     clone.querySelectorAll("sup.reference").forEach((s) => s.remove());
     return { p, text: norm(clone.textContent) };
@@ -152,13 +165,16 @@
         if (img) names.push(fileKey(img.getAttribute("src").split("/").pop().replace(/^\d+px-/, "")));
         return names.includes(key);
       });
-      if (hit) { addCase(hit, c); found.push({ c, node: hit }); } else missing.push(c);
-      continue;
+      if (hit) { addCase(hit, c); found.push({ c, node: hit }); continue; }
+      // The picture may be gone while its caption text is still there: fall through to the text.
     }
     let hit = null;
-    const tries = passages(c.text || "");
+    // build_bookmarklet.py now ships ready "needles"; an older build only has the added text.
+    const tries = c.needles ? c.needles.map(norm) : passages(c.text || "");
     for (const t of tries) {
-      hit = paragraphs.find((x) => x.text.includes(t));
+      // The smallest element that contains the passage: a list item rather than the whole list.
+      const all = paragraphs.filter((x) => x.text.includes(t));
+      hit = all.sort((a, b) => a.text.length - b.text.length)[0] || null;
       if (hit) { hit.needle = t; break; }
     }
     if (!hit) { missing.push(c); continue; }
@@ -203,12 +219,14 @@
   );
   panel.append(top);
   if (DATA.mock) panel.append(el("div", "color:#ffd84d;font-weight:700;font-size:12px", "Sample data" + DOT + "not real findings"));
+  // The total counts every published case of the article, even those with nothing left to outline.
+  const total = Math.max(cases.length, (DATA.totals && DATA.totals[String(pageId)]) || 0);
   panel.append(
     el(
       "div",
       "",
-      cases.length
-        ? found.length + " rewritten passage" + (found.length === 1 ? "" : "s") + " highlighted:"
+      total
+        ? found.length + " of " + total + " TimeProof case" + (total === 1 ? "" : "s") + " on this article located on today's page:"
         : "No TimeProof cases for this article."
     )
   );
@@ -227,7 +245,8 @@
   for (const item of found) {
     const row = el("div", "display:flex;align-items:center;gap:8px;margin-top:6px");
     row.append(
-      el("span", "flex:0 0 auto;font-size:11px;font-weight:700;color:" + C.muted, item.c.kind === "image" ? "IMAGE" : "TEXT"),
+      el("span", "flex:0 0 auto;font-size:11px;font-weight:700;color:" + C.muted,
+        item.c.kind === "image" ? "IMAGE" : item.c.side === "removed" ? "RESTORED" : item.c.side === "added" ? "STILL ONLINE" : "TEXT"),
       el("span", "flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap", item.c.headline)
     );
     const btn = el("button", "flex:0 0 auto;background:" + C.button + ";color:#fff;border:0;border-radius:999px;font:600 12px system-ui,sans-serif;padding:4px 10px;cursor:pointer", "Show");
@@ -236,7 +255,18 @@
     row.append(btn);
     panel.append(row);
   }
-  if (missing.length) panel.append(el("div", "color:" + C.muted + ";margin-top:8px", missing.length + " case" + (missing.length === 1 ? " is" : "s are") + " not on this version of the page."));
+  const notHere = total - found.length;
+  if (notHere > 0) {
+    const line = el("div", "color:" + C.muted + ";margin-top:8px",
+      notHere + " other case" + (notHere === 1 ? " leaves" : "s leave") + " nothing to outline on today's page. ");
+    // Every case of the article stays readable on the site, filtered on this article.
+    const all = el("a", "color:" + C.railText + ";text-decoration:underline", "See all " + total + " on TimeProof");
+    all.href = DATA.site.replace(/\/$/, "") + "/?article=" + encodeURIComponent(mw.config.get("wgTitle"));
+    all.target = "_blank";
+    all.rel = "noopener";
+    line.append(all);
+    panel.append(line);
+  }
   panel.append(el("div", "color:" + C.muted + ";margin-top:6px;font-size:12px", "Click the bookmark again to turn the Lens off."));
   document.body.append(panel, tip);
 })();
