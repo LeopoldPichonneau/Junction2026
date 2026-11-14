@@ -73,9 +73,20 @@ function readersText(readers) {
   return `≈ ${fmt(readers)} readers`;
 }
 
+// Under a day, "0 days" would hide a short but real exposure: count hours instead.
+function durationText(days) {
+  if (typeof days !== "number") return "? days";
+  if (days < 1) {
+    const h = Math.max(1, Math.round(days * 24));
+    return `${h} ${h === 1 ? "hour" : "hours"}`;
+  }
+  const d = Math.round(days);
+  return `${fmt(d)} ${d === 1 ? "day" : "days"}`;
+}
+
 function exposureText(days, readers, stillOnline) {
-  const d = typeof days === "number" ? Math.round(days) : "?";
-  const online = stillOnline ? `still online after ${d} days` : `online for ${d} days`;
+  const d = durationText(days);
+  const online = stillOnline ? `still online after ${d}` : `online for ${d}`;
   return `${online} · ${readersText(readers)}`;
 }
 
@@ -220,6 +231,105 @@ function caseItem(c) {
   );
 }
 
+// ---------- Home: search, filters and sort over the published cases ----------
+// The list is small (about a hundred cases), so everything is filtered in the browser:
+// no extra API call, and the URL keeps the filters so a filtered view can be shared.
+
+const SORTS = {
+  readers: ["Most readers exposed", (a, b) => (b.readers_est ?? -1) - (a.readers_est ?? -1) || (b.confidence || 0) - (a.confidence || 0)],
+  days: ["Longest online", (a, b) => (b.days_live || 0) - (a.days_live || 0)],
+  newest: ["Newest edit", (a, b) => String(b.date).localeCompare(String(a.date))],
+  oldest: ["Oldest edit", (a, b) => String(a.date).localeCompare(String(b.date))],
+  confidence: ["Highest confidence", (a, b) => (b.confidence || 0) - (a.confidence || 0)],
+};
+
+function optionList(select, entries, selected) {
+  select.replaceChildren(...entries.map(([value, label]) => el("option", { value, text: label })));
+  if (entries.some(([v]) => v === selected)) select.value = selected;
+}
+
+function setupCaseFilters(cases, casesBox) {
+  const form = document.getElementById("case-filters");
+  const countBox = document.getElementById("case-count");
+  const sortName = document.getElementById("sort-name");
+
+  // Every choice is built from the cases themselves, so no filter can offer an empty category.
+  const count = (key) => cases.reduce((m, c) => m.set(c[key], (m.get(c[key]) || 0) + 1), new Map());
+  const signals = [...count("signal_type")].sort((a, b) => b[1] - a[1]);
+  const titles = [...count("title")].sort((a, b) => String(a[0]).localeCompare(String(b[0]), "fi"));
+  const years = [...new Set(cases.map((c) => String(c.date).slice(0, 4)))].sort();
+
+  const q = el("input", { type: "search", id: "f-q", placeholder: "Search a word, an article, a headline…", autocomplete: "off" });
+  const signal = el("select", { id: "f-signal" });
+  const article = el("select", { id: "f-article" });
+  const status = el("select", { id: "f-status" });
+  const from = el("select", { id: "f-from" });
+  const to = el("select", { id: "f-to" });
+  const sort = el("select", { id: "f-sort" });
+  const reset = el("button", { type: "button", class: "pill secondary", text: "Reset" });
+
+  optionList(signal, [["", `All signals (${cases.length})`], ...signals.map(([s, n]) => [s, `${SIGNAL_LABELS[s] || s} (${n})`])], params.get("signal"));
+  optionList(article, [["", `All articles (${titles.length})`], ...titles.map(([t, n]) => [t, `${t} (${n})`])], params.get("article"));
+  optionList(status, [["", "Online or not"], ["online", "Still online"], ["removed", "Since removed"]], params.get("status"));
+  optionList(from, years.map((y) => [y, y]), params.get("from") || years[0]);
+  optionList(to, years.map((y) => [y, y]), params.get("to") || years[years.length - 1]);
+  optionList(sort, Object.entries(SORTS).map(([k, [label]]) => [k, label]), params.get("sort") || "readers");
+  q.value = params.get("q") || "";
+
+  const field = (label, control) => el("label", {}, label, control);
+  form.replaceChildren(
+    el("label", { class: "search" }, "Search", q),
+    field("Signal", signal),
+    field("Article", article),
+    field("Status", status),
+    el("div", { class: "years" }, field("From", from), field("To", to)),
+    field("Sort by", sort),
+    reset
+  );
+
+  function apply() {
+    const words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const lo = from.value <= to.value ? from.value : to.value;
+    const hi = from.value <= to.value ? to.value : from.value;
+    const shown = cases.filter((c) => {
+      const year = String(c.date).slice(0, 4);
+      if (signal.value && c.signal_type !== signal.value) return false;
+      if (article.value && c.title !== article.value) return false;
+      if (status.value === "online" && !c.still_online) return false;
+      if (status.value === "removed" && c.still_online) return false;
+      if (year < lo || year > hi) return false;
+      const hay = `${c.title} ${c.headline_en} ${c.summary_en}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+    shown.sort(SORTS[sort.value][1]);
+    sortName.textContent = SORTS[sort.value][0].toLowerCase();
+    countBox.textContent = shown.length === cases.length ? `${cases.length} cases` : `${shown.length} of ${cases.length} cases`;
+    casesBox.replaceChildren(
+      ...(shown.length ? shown.map(caseItem) : [el("p", { class: "empty", text: "No case matches these filters." })])
+    );
+    // Keep the view in the address bar (shareable), without adding history entries.
+    const p = new URLSearchParams();
+    if (q.value.trim()) p.set("q", q.value.trim());
+    for (const [k, s, def] of [["signal", signal, ""], ["article", article, ""], ["status", status, ""], ["from", from, years[0]], ["to", to, years[years.length - 1]], ["sort", sort, "readers"]]) {
+      if (s.value !== def) p.set(k, s.value);
+    }
+    if (params.get("mock") === "1") p.set("mock", "1");
+    history.replaceState(null, "", p.toString() ? `?${p}` : location.pathname);
+  }
+
+  q.addEventListener("input", apply);
+  for (const s of [signal, article, status, from, to, sort]) s.addEventListener("change", apply);
+  reset.addEventListener("click", () => {
+    q.value = "";
+    signal.value = article.value = status.value = "";
+    from.value = years[0];
+    to.value = years[years.length - 1];
+    sort.value = "readers";
+    apply();
+  });
+  apply();
+}
+
 async function pageHome() {
   const statsBox = document.getElementById("stats");
   const casesBox = document.getElementById("cases");
@@ -245,9 +355,8 @@ async function pageHome() {
 
   try {
     const cases = await api("/api/cases");
-    casesBox.replaceChildren(
-      ...(cases.length ? cases.map(caseItem) : [el("p", { class: "empty", text: "No case published yet." })])
-    );
+    if (!cases.length) casesBox.replaceChildren(el("p", { class: "empty", text: "No case published yet." }));
+    else setupCaseFilters(cases, casesBox);
   } catch (err) {
     errorBox(casesBox, err);
   }
@@ -410,32 +519,115 @@ async function pageCase() {
 
 // ---------- Time machine ----------
 
-function renderTimeline(box, rows, onPick) {
+const monthLabel = (m) => new Date(`${m}-01T00:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+const pctText = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : "0%");
+
+// A round scale top (1, 2, 5 × 10^n) so the axis reads 0 / 25 / 50 rather than 0 / 23.5 / 47.
+function niceMax(v) {
+  const p = 10 ** Math.floor(Math.log10(Math.max(v, 1)));
+  return [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].map((k) => k * p).find((k) => k >= v);
+}
+
+function renderTimeline(box, rows, cases, onPick) {
   if (!rows.length) {
     box.replaceChildren(el("p", { class: "empty", text: "No timeline data." }));
     return;
   }
-  const max = Math.max(...rows.map((r) => r.edits), 1);
+  const totalEdits = rows.reduce((s, r) => s + r.edits, 0);
+  const totalReverts = rows.reduce((s, r) => s + r.reverts, 0);
+  const busiest = rows.reduce((a, b) => (b.edits > a.edits ? b : a));
+  const casesByMonth = cases.reduce((m, c) => m.set(String(c.date).slice(0, 7), [...(m.get(String(c.date).slice(0, 7)) || []), c]), new Map());
+
+  // The key figures of the article, each with its unit spelled out.
+  const figure = (value, label) => el("div", { class: "tm-stat" }, el("div", { class: "value", text: value }), el("div", { class: "label", text: label }));
+  const stats = el(
+    "div",
+    { class: "tm-stats" },
+    figure(fmt(totalEdits), "edits in total"),
+    figure(fmt(totalReverts), `reverts (${pctText(totalReverts, totalEdits)} of edits)`),
+    figure(fmt(Math.round(totalEdits / rows.length)), "edits per month on average"),
+    figure(fmt(busiest.edits), `edits in the busiest month (${monthLabel(busiest.month)})`),
+    figure(fmt(cases.length), cases.length === 1 ? "TimeProof case published" : "TimeProof cases published")
+  );
+
+  const top = niceMax(Math.max(...rows.map((r) => r.edits), 1));
+  const readout = el("p", { class: "tm-readout", "aria-live": "polite" });
+  const describe = (r) => {
+    const found = casesByMonth.get(r.month) || [];
+    readout.replaceChildren(
+      el("strong", { text: monthLabel(r.month) }),
+      ` · ${fmt(r.edits)} ${r.edits === 1 ? "edit" : "edits"} · ${fmt(r.reverts)} ${r.reverts === 1 ? "revert" : "reverts"}` +
+        (r.edits ? ` (${pctText(r.reverts, r.edits)})` : "") +
+        (found.length ? ` · ${found.length} TimeProof ${found.length === 1 ? "case" : "cases"}` : "")
+    );
+  };
+  const resetReadout = () =>
+    readout.replaceChildren(`${monthLabel(rows[0].month)} – ${monthLabel(rows[rows.length - 1].month)} · hover or tap a month to read its values, click to open the article at that date.`);
+
   const bars = rows.map((r) => {
-    const bar = el("div", { class: "bar", title: `${r.month}: ${r.edits} edits, ${r.reverts} reverts` });
-    bar.style.height = `${(r.edits / max) * 100}%`;
+    const bar = el("div", { class: "bar", role: "button", tabindex: "0", "aria-label": `${monthLabel(r.month)}: ${r.edits} edits, ${r.reverts} reverts` });
+    bar.style.height = `${(r.edits / top) * 100}%`;
     const rev = el("div", { class: "rev" });
     rev.style.height = r.edits ? `${(r.reverts / r.edits) * 100}%` : "0";
     bar.append(rev);
-    bar.addEventListener("click", () => onPick(r.month, bar));
+    if (casesByMonth.has(r.month)) bar.append(el("span", { class: "case-mark", title: "TimeProof case" }));
+    bar.addEventListener("mouseenter", () => describe(r));
+    bar.addEventListener("focus", () => describe(r));
+    bar.addEventListener("click", () => {
+      describe(r);
+      onPick(r.month, bar);
+    });
+    bar.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        bar.click();
+      }
+    });
     return bar;
   });
+
+  // Y axis: 0, half and top of the scale, with grid lines behind the bars.
+  const yTicks = [top, top / 2, 0];
+  const yAxis = el("div", { class: "tm-y" }, yTicks.map((v) => el("span", { text: fmt(v) })));
+  const grid = el("div", { class: "tm-grid" }, yTicks.map(() => el("i")));
+  const plot = el("div", { class: "timeline" }, grid, ...bars);
+  plot.addEventListener("mouseleave", resetReadout);
+
+  // X axis: one label per year, thinned so they never overlap on a phone.
+  // Januaries only: the first month is rarely one, and labelling it would crowd the next year.
+  let years = rows.map((r, i) => [r.month, i]).filter(([m]) => m.endsWith("-01"));
+  if (!years.length) years = [[rows[0].month, 0]];
+  const step = Math.ceil(years.length / (window.innerWidth < 600 ? 5 : 12));
+  const xAxis = el(
+    "div",
+    { class: "tm-x" },
+    years.filter((_, i) => i % step === 0).map(([m, i]) => {
+      const s = el("span", { text: m.slice(0, 4) });
+      s.style.left = `${(i / rows.length) * 100}%`;
+      return s;
+    })
+  );
+
+  resetReadout();
   box.replaceChildren(
-    el("div", { class: "timeline" }, bars),
-    el("div", { class: "timeline-axis" }, el("span", { text: rows[0].month }), el("span", { text: rows[rows.length - 1].month })),
+    stats,
     el(
-      "div",
-      { class: "legend" },
-      "Click a month to jump to it.",
-      el("i", { style: "background: var(--brand-text)" }),
-      "edits",
-      el("i", { style: "background: var(--signal)" }),
-      "reverts"
+      "figure",
+      { class: "tm-chart" },
+      el("p", { class: "tm-axis-title", text: "Edits per month" }),
+      el("div", { class: "tm-plot" }, yAxis, el("div", {}, plot, xAxis)),
+      el("p", { class: "tm-axis-title tm-x-title", text: "Month of the edit (UTC)" }),
+      readout,
+      el(
+        "figcaption",
+        { class: "legend" },
+        el("i", { style: "background: var(--brand-text)" }),
+        "edits",
+        el("i", { style: "background: var(--warning)" }),
+        "reverts (an edit that restores an earlier version)",
+        el("i", { class: "legend-case" }),
+        "month with a published TimeProof case"
+      )
     )
   );
 }
@@ -482,10 +674,19 @@ async function pageTimeMachine() {
     }
   }
 
+  // Published cases are only used to mark their months on the chart: if they fail, the chart still works.
+  let allCases = [];
+  try {
+    allCases = await api("/api/cases");
+  } catch (_) {
+    allCases = [];
+  }
+
   async function loadTimeline() {
     try {
       const rows = await api(`/api/articles/${select.value}/timeline`);
-      renderTimeline(timelineBox, rows, (month, bar) => {
+      const here = allCases.filter((c) => String(c.page_id) === String(select.value));
+      renderTimeline(timelineBox, rows, here, (month, bar) => {
         timelineBox.querySelectorAll(".bar.selected").forEach((b) => b.classList.remove("selected"));
         bar.classList.add("selected");
         dateInput.value = `${month}-15`;
@@ -587,9 +788,10 @@ async function pageLens() {
     { class: "lens-steps" },
     el("li", {}, "Show your bookmarks bar: ", el("strong", { text: "Ctrl + Shift + B" }), " (Cmd + Shift + B on a Mac)."),
     el("li", {}, "Drag the button below onto the bookmarks bar."),
+    // Most published cases were later undone on Wikipedia: the example is an article where one is still online.
     el("li", {}, "Open a Finnish Wikipedia article, for example ",
-      el("a", { href: "https://fi.wikipedia.org/wiki/Suomen_sis%C3%A4llissota", target: "_blank", rel: "noopener", text: "Suomen sisällissota" }),
-      ", and click the bookmark. Use the Show buttons in its panel to jump to each case."),
+      el("a", { href: "https://fi.wikipedia.org/wiki/Vuosaari", target: "_blank", rel: "noopener", text: "Vuosaari" }),
+      ", and click the bookmark. Use the Show buttons in its panel to jump to each case. On an article where a case was later undone, the panel says so."),
     el("li", {}, "Click the bookmark again to turn the Lens off.")
   );
   // A Lens built from sample data must never be offered on the deployed site.
