@@ -1,4 +1,5 @@
-# Build-check and deploy TimeProof to the Hostinger VPS on every push to main, on CRACI runners.
+# Build-check and deploy TimeProof to the Hostinger VPS on every push to the Deploy branch, on CRACI runners.
+# main collects the team's merges; Deploy is what runs online. To release: git push origin main:Deploy
 # Setup (once): CRACI GitHub app installed on the repo, and three Actions secrets:
 #   VPS_HOST (VPS address), VPS_USER (deploy), VPS_SSH_KEY (private deploy key).
 # This file has never run yet: check the "Runner tools" step on the first run.
@@ -6,7 +7,7 @@ name: deploy
 
 on:
   push:
-    branches: [main]
+    branches: [Deploy]
   workflow_dispatch:
     inputs:
       force:
@@ -19,6 +20,8 @@ concurrency: deploy
 
 jobs:
   deploy:
+    # A manual run can target any branch: only Deploy may reach the VPS.
+    if: github.ref == 'refs/heads/Deploy'
     runs-on: craci
     defaults:
       run:
