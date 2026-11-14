@@ -1,0 +1,116 @@
+/* TimeProof design tokens. Full rationale in identity.md. Load before style.css. */
+
+:root {
+  /* Colour: white pages, ultramarine for brand and structure, red only for evidence */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f2f3f7;      /* quiet rows, footer bar */
+  --rail: #2b2d33;           /* slim dark side rail */
+  --rail-text: #f2f3f7;
+  --rail-muted: #b9bcc6;
+  --brand: #447cbb;          /* reference blue: hero band, pills, buttons (fill under white text) */
+  --brand-strong: #3a6ca6;   /* hover */
+  --brand-soft: #e8f0f9;
+  --brand-text: #3687eb;     /* bright reference blue: two-tone words, timeline bars */
+  --button: #3687eb;         /* bright reference blue: pill buttons */
+  --button-hover: #2a74d4;
+  --on-brand: #ffffff;
+  --on-brand-muted: #ffffff;
+  --line: #e1e3ea;
+  --text: #1c1d22;
+  --text-2: #565965;         /* 7:1 on white */
+  --link: #2f5f99;
+  --signal: #b42318;         /* "proof red": flags, highlights, Lens outline. Never blue for evidence */
+  --signal-soft: #fbeae8;
+  --added: #e6f2ea;
+  --added-text: #1d5c34;
+  --removed: #fbeae8;
+  --removed-text: #8f1c13;
+  --warning: #9a5b00;
+  --mock-bg: #ffd84d;
+  --mock-text: #1c1d22;
+
+  /* Typography */
+  --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fs-display: clamp(34px, 6vw, 60px);
+  --fs-h1: clamp(28px, 4.5vw, 42px);
+  --fs-h2: 28px;
+  --fs-h3: 20px;
+  --fs-body: 16px;
+  --fs-read: 18px;
+  --fs-small: 13px;
+  --fs-label: 11px;
+  --lh-tight: 1.15;
+  --lh-body: 1.6;
+
+  /* Spacing and shape */
+  --unit: 8px;
+  --rail-width: 88px;
+  --container: 1040px;
+  --gutter: 16px;
+  --section: 56px;
+  --radius-card: 4px;
+  --radius-button: 999px;
+  --shadow: 0 1px 2px rgba(28, 29, 34, 0.06), 0 6px 20px rgba(28, 29, 34, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #121317;
+    --surface: #1a1b21;
+    --surface-2: #1d1f26;
+    --rail: #0b0c0f;
+    --rail-text: #f2f3f7;
+    --rail-muted: #a3a7b3;
+    --brand: #447cbb;
+    --brand-strong: #3a6ca6;
+    --brand-soft: #1b2636;
+    --brand-text: #3687eb;
+    --button: #3687eb;
+    --button-hover: #2a74d4;
+    --on-brand: #ffffff;
+    --on-brand-muted: #ffffff;
+    --line: #2c2e37;
+    --text: #eef0f5;
+    --text-2: #a8abb7;
+    --link: #7fb0ec;
+    --signal: #ff7466;
+    --signal-soft: #3a1d1a;
+    --added: #16301f;
+    --added-text: #9fd8b0;
+    --removed: #3a1d1a;
+    --removed-text: #ffb3aa;
+    --warning: #e5a54a;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #121317;
+  --surface: #1a1b21;
+  --surface-2: #1d1f26;
+  --rail: #0b0c0f;
+  --rail-text: #f2f3f7;
+  --rail-muted: #a3a7b3;
+  --brand: #447cbb;
+  --brand-strong: #3a6ca6;
+  --brand-soft: #1b2636;
+  --brand-text: #3687eb;
+  --button: #3687eb;
+  --button-hover: #2a74d4;
+  --on-brand: #ffffff;
+  --on-brand-muted: #ffffff;
+  --line: #2c2e37;
+  --text: #eef0f5;
+  --text-2: #a8abb7;
+  --link: #7fb0ec;
+  --signal: #ff7466;
+  --signal-soft: #3a1d1a;
+  --added: #16301f;
+  --added-text: #9fd8b0;
+  --removed: #3a1d1a;
+  --removed-text: #ffb3aa;
+  --warning: #e5a54a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+}

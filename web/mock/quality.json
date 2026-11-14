@@ -1,0 +1,6 @@
+{"synthetic_campaign": {"planted": 13, "caught": 11},
+ "manual_review": {"reviewed": 20, "correct": 17},
+ "downgraded_by_two_model_rule": 42,
+ "declared_bots_excluded": 398,
+ "suspicious_accounts": 27,
+ "notes": {"synthetic_campaign": "13 fake edits planted in a test copy, never shown publicly"}}

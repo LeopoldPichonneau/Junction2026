@@ -1,0 +1,12 @@
+{"rev_id": 4410233, "page_id": 1256, "title": "Talvisota", "date": "2009-02-14", "signal_type": "sources",
+ "headline_en": "[MOCK] Six references removed from one section",
+ "summary_en": "[MOCK] Placeholder summary. Several sources supporting a casualty figure were removed in one edit.",
+ "confidence": 0.65,
+ "added": "", "removed": "[MOCK] removed sentence with its references",
+ "image": null,
+ "investigator": {"model": "nemotron-3.5-super-vl", "report": "[MOCK] Placeholder investigator report.", "signals": ["sources removed"], "image_findings": null},
+ "decider": {"model": "gemini-flash", "decision": "flag", "explanation": "[MOCK] Placeholder decider explanation."},
+ "exposure": {"live_from": "2009-02-14", "live_until": "2009-08-23", "days_live": 190, "readers_est": null, "still_online": false},
+ "account": {"kind": "normal", "reasons": []},
+ "links": {"version": "https://fi.wikipedia.org/?oldid=4410233",
+           "diff": "https://fi.wikipedia.org/w/index.php?diff=prev&oldid=4410233"}}
