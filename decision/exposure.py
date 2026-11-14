@@ -27,6 +27,7 @@ import json
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from urllib.parse import quote
 
 import config
@@ -238,6 +239,89 @@ def exposure_for(case: dict, versions: list[tuple]) -> dict:
     }
 
 
+# ---------- demo cases checked by hand ----------
+
+VERIFIED_FILE = Path(__file__).resolve().parent / "verified_exposure.json"
+
+
+def _matches(checked: str | None, actual: datetime | None) -> bool:
+    """The hand-checked date (or date and minute) must be the one the parquet gives."""
+    if checked is None or actual is None:
+        return checked is None and actual is None
+    fmt = "%Y-%m-%dT%H:%M" if "T" in checked else "%Y-%m-%d"
+    return actual.strftime(fmt) == checked
+
+
+def verified_exposure(wanted: set[int]) -> dict[int, dict]:
+    """Exposure of the hand-checked demo cases, from the exact timestamps of the revisions named
+    in verified_exposure.json. A case whose parquet dates do not match what was checked is left
+    out (and reported), so a typo can never silently replace the automatic estimate."""
+    if not VERIFIED_FILE.exists():
+        return {}
+    spec = {c["rev_id"]: c for c in json.loads(VERIFIED_FILE.read_text(encoding="utf-8"))["cases"]
+            if c["rev_id"] in wanted}
+    if not spec:
+        return {}
+    revs = {r for c in spec.values() for r in [c["rev_id"], c.get("ended_by_rev_id")] + sum(c.get("gaps", []), [])
+            if r}
+    found: dict[int, tuple] = {}
+    by_page: dict[int, list[tuple]] = defaultdict(list)
+    for row in iter_versions(["page_id", "title", "rev_id", "timestamp"]):
+        if row["rev_id"] in revs:
+            found[row["rev_id"]] = (row["page_id"], row["timestamp"])
+        by_page[row["page_id"]].append((row["timestamp"], row["rev_id"], row["title"]))
+    out = {}
+    for rev, c in spec.items():
+        try:
+            page_id, start = found[rev]
+            end_rev = c.get("ended_by_rev_id")
+            end = found[end_rev][1] if end_rev else None
+            gaps = [(found[a][1], found[b][1]) for a, b in c.get("gaps", [])]
+        except KeyError as e:
+            print(f"  verified {rev}: revision {e} not in the parquet files, not applied")
+            continue
+        checked = c.get("checked", {})
+        ok = _matches(checked.get("from"), start) and _matches(checked.get("until"), end) and all(
+            _matches(cf, a) and _matches(cu, b) for (cf, cu), (a, b) in zip(checked.get("gaps", []), gaps))
+        if not ok:
+            print(f"  verified {rev}: parquet dates differ from the checked dates, not applied "
+                  f"(parquet: {start} -> {end}, checked: {checked})")
+            continue
+        stop = end or config.DATASET_END
+        versions = sorted(v for v in by_page[page_id] if start <= v[0] < stop)
+        online = (stop - start).total_seconds() - sum((b - a).total_seconds() for a, b in gaps)
+        readers = None
+        if stop > config.PAGEVIEWS_START:
+            readers = 0.0
+            for j, (ts, _r, title) in enumerate(versions):
+                a = max(ts, config.PAGEVIEWS_START)
+                b = versions[j + 1][0] if j + 1 < len(versions) else stop
+                # Time the content was gone does not count.
+                for g0, g1 in gaps:
+                    if a < g1 and g0 < b:
+                        readers -= views_between(fetch_daily_views(title), max(a, g0), min(b, g1))
+                if b > a:
+                    readers += views_between(fetch_daily_views(title), a, b)
+        out[rev] = {
+            "live_from": start.strftime("%Y-%m-%dT%H:%MZ"),
+            "live_until": None if end is None else end.strftime("%Y-%m-%dT%H:%MZ"),
+            "still_online": end is None,
+            "days_live": round(online / 86400, 4),  # 4 decimals: a 6-minute case must not read 0.0
+            "readers_est": None if readers is None else int(round(max(readers, 0))),
+            "readers_partial": readers is not None and start < config.PAGEVIEWS_START,
+            "ended_by": "verified by hand",
+            "ended_by_rev_id": end_rev,
+            "gaps": [[a.strftime("%Y-%m-%dT%H:%MZ"), b.strftime("%Y-%m-%dT%H:%MZ")] for a, b in gaps],
+            "tracked_by": "verified by hand",
+            "verified": True,
+            "titles": sorted({v[2] for v in versions}),
+        }
+        e = out[rev]
+        print(f"  verified {rev}: {e['days_live']} days, ≈{e['readers_est']} readers"
+              + (", still online" if e["still_online"] else ""))
+    return out
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--cases", default=None,
@@ -308,13 +392,22 @@ def main() -> None:
     decisions_path = Path(args.decisions)
     decisions = list(read_jsonl(decisions_path))
     if decisions:
+        # Hand-checked dates win over the automatic estimate (kept apart from the cache, which
+        # stays purely automatic so the two methods can still be compared).
+        verified = verified_exposure({d["rev_id"] for d in decisions})
         merged = 0
         for d in decisions:
-            if "error" not in cache.get(d["rev_id"], {"error": 1}):
+            if d["rev_id"] in verified:
+                d["exposure"] = verified[d["rev_id"]]
+                merged += 1
+            elif "error" not in cache.get(d["rev_id"], {"error": 1}):
                 d["exposure"] = cache[d["rev_id"]]
                 merged += 1
+            elif isinstance(d.get("exposure"), dict) and d["exposure"].get("verified"):
+                del d["exposure"]  # a case removed from verified_exposure.json falls back to nothing
         write_atomic(decisions_path, decisions)
-        print(f"Added exposure to {merged} of {len(decisions)} lines of {decisions_path.name}")
+        print(f"Added exposure to {merged} of {len(decisions)} lines of {decisions_path.name} "
+              f"({len(verified)} checked by hand)")
     else:
         print(f"No {decisions_path.name} yet: exposure stays in {cache_path.name} "
               "until decide.py has run (then: python decision/exposure.py --merge-only)")

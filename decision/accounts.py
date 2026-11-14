@@ -9,6 +9,7 @@ Writes data/exchange/accounts.jsonl          (format 4.3 bis, one account per li
 The rules are starting points from docs/TECH.md section 10: look at the output and tune them.
 """
 import argparse
+import json
 import re
 import statistics
 from collections import defaultdict
@@ -48,6 +49,26 @@ def fetch_declared_bots() -> set[str]:
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text("\n".join(sorted(names)), encoding="utf-8")
     return names
+
+
+def repeat_reasons() -> dict[str, str]:
+    """{account_hash: readable reason} for the accounts in Maël's top_repeat_accounts.
+
+    Only adds a reason: being flagged several times by the investigator is a hint, not proof,
+    so it never changes the account's kind or score on its own.
+    """
+    path = config.EXCHANGE / "insights.json"
+    if not path.exists():
+        return {}
+    top = (json.loads(path.read_text(encoding="utf-8")).get("accounts") or {}).get("top_repeat_accounts") or []
+    out = {}
+    for a in top:
+        n, arts = a.get("suspicious_edits"), a.get("articles")
+        first, last = str(a.get("first", ""))[:4], str(a.get("last", ""))[:4]
+        years = first if first == last else f"{first}-{last}"
+        out[a["account_hash"]] = (f"{n} edit{'s' if n != 1 else ''} flagged by the investigator across "
+                                  f"{arts} article{'s' if arts != 1 else ''} ({years})")
+    return out
 
 
 def load_edits() -> dict[int, list[tuple]]:
@@ -141,9 +162,12 @@ def main() -> None:
                 if nxt[3] == prev[3] and sha1 != prev[3] and nxt[2] != user:
                     a["reverted"] += 1
 
+    repeats = repeat_reasons()
     rows, counts = [], defaultdict(int)
     for user, a in acc.items():
         kind, reasons, score = classify(user, a, bots)
+        if account_hash(user) in repeats:
+            reasons.append(repeats[account_hash(user)])
         counts[kind] += 1
         times = sorted(a["times"])
         rows.append({
@@ -163,6 +187,9 @@ def main() -> None:
                "mock": config.USE_MOCK}
     write_atomic(config.exchange_file("accounts_summary.json"), summary, jsonl=False)
     print(f"Wrote {len(rows):,} accounts to {out}: {dict(counts)}")
+    if repeats:
+        found = sum(1 for r in rows if r["account_hash"] in repeats)
+        print(f"  repeat-flag reason added to {found} of the {len(repeats)} accounts listed in insights.json")
 
 
 if __name__ == "__main__":
