@@ -1,0 +1,43 @@
+{
+ "rev_id": 21877002,
+ "page_id": 1150,
+ "title": "Suomen sisällissota",
+ "date": "2012-09-03",
+ "signal_type": "framing",
+ "headline_en": "[MOCK] Loaded names for the war moved to the front",
+ "summary_en": "[MOCK] Placeholder summary. Loaded names for the 1918 war were moved to the front of a sentence.",
+ "confidence": 0.66,
+ "added": "[MOCK] vapaussota, luokkasota, punakapina",
+ "removed": "",
+ "image": null,
+ "investigator": {
+  "model": "nemotron-3.5-super-vl",
+  "report": "[MOCK] Placeholder investigator report.",
+  "signals": [
+   "one-sided renaming"
+  ],
+  "image_findings": null
+ },
+ "decider": {
+  "model": "gemini-flash",
+  "decision": "flag",
+  "explanation": "[MOCK] Placeholder decider explanation."
+ },
+ "exposure": {
+  "live_from": "2012-09-03",
+  "live_until": "2013-02-10",
+  "days_live": 160,
+  "readers_est": null,
+  "still_online": false
+ },
+ "account": {
+  "kind": "single_purpose",
+  "reasons": [
+   "[MOCK] 14 edits, all on 2 articles about 1918"
+  ]
+ },
+ "links": {
+  "version": "https://fi.wikipedia.org/?oldid=21877002",
+  "diff": "https://fi.wikipedia.org/w/index.php?diff=prev&oldid=21877002"
+ }
+}

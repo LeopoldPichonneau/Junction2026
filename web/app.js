@@ -126,6 +126,7 @@ const ICON_ATTRS = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 const ICONS = {
   home: `<svg ${ICON_ATTRS}><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/></svg>`,
   timemachine: `<svg ${ICON_ATTRS}><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/></svg>`,
+  lens: `<svg ${ICON_ATTRS}><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 10.5h6"/></svg>`,
   quality: `<svg ${ICON_ATTRS}><path d="M12 21s7.5-3.6 7.5-9.5V5.2L12 2.5 4.5 5.2v6.3C4.5 17.4 12 21 12 21z"/><path d="m8.8 11.8 2.2 2.2 4.2-4.3"/></svg>`,
 };
 
@@ -135,6 +136,7 @@ function renderLayout() {
     ["index.html", "Cases", "home"],
     ["timemachine.html", "Time machine", "timemachine"],
     ["quality.html", "Detection quality", "quality"],
+    ["lens.html", "Lens", "lens"],
   ];
   const header = el(
     "header",
@@ -569,9 +571,49 @@ async function pageQuality() {
   box.replaceChildren(cards.length ? el("div", { class: "quality-grid" }, cards) : el("p", { class: "empty", text: "No quality figures yet." }));
 }
 
+// ---------- Lens: offer the bookmark ----------
+
+async function pageLens() {
+  const box = document.getElementById("lens");
+  let info;
+  try {
+    info = await fetchJson("lens.json");
+  } catch (err) {
+    box.replaceChildren(el("p", { class: "empty", text: "The Lens is not built yet." }));
+    return;
+  }
+  const steps = el(
+    "ol",
+    { class: "lens-steps" },
+    el("li", {}, "Show your bookmarks bar: ", el("strong", { text: "Ctrl + Shift + B" }), " (Cmd + Shift + B on a Mac)."),
+    el("li", {}, "Drag the button below onto the bookmarks bar."),
+    el("li", {}, "Open a Finnish Wikipedia article, for example ",
+      el("a", { href: "https://fi.wikipedia.org/wiki/Suomen_sis%C3%A4llissota", target: "_blank", rel: "noopener", text: "Suomen sisällissota" }),
+      ", and click the bookmark. Use the Show buttons in its panel to jump to each case."),
+    el("li", {}, "Click the bookmark again to turn the Lens off.")
+  );
+  // A Lens built from sample data must never be offered on the deployed site.
+  if (info.mock && !IS_LOCAL) {
+    box.replaceChildren(el("p", { class: "empty", text: "The Lens will be available here once real cases are published." }));
+    return;
+  }
+  const button = el("a", { class: "pill lens-button", href: info.href, title: "Drag me to your bookmarks bar", text: "TimeProof Lens" });
+  // Clicking it here would only run it on our own site: explain instead.
+  button.addEventListener("click", (e) => {
+    e.preventDefault();
+    alert("Drag this button to your bookmarks bar, then click it on a Finnish Wikipedia article.");
+  });
+  box.replaceChildren(
+    steps,
+    el("div", { class: "lens-drag" }, button, el("span", { class: "meta", text: "← Drag me to your bookmarks bar" })),
+    info.mock ? el("p", { class: "lens-mock", text: "This Lens is built from sample data: it shows placeholder cases, not real findings." }) : null,
+    el("p", { class: "meta", text: `${info.cases} published case${info.cases === 1 ? "" : "s"} included · built ${info.built}. No data is sent anywhere: the cases are stored inside the bookmark and TimeProof never edits Wikipedia.` })
+  );
+}
+
 // ---------- Boot ----------
 
-const PAGES = { home: pageHome, case: pageCase, timemachine: pageTimeMachine, quality: pageQuality };
+const PAGES = { home: pageHome, case: pageCase, timemachine: pageTimeMachine, quality: pageQuality, lens: pageLens };
 
 document.addEventListener("DOMContentLoaded", () => {
   renderLayout();
