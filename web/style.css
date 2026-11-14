@@ -438,3 +438,14 @@ main { min-height: 100vh; }
   a[href^="http"]::after { content: " (" attr(href) ")"; font-weight: 400; word-break: break-all; }
   .card { break-inside: avoid; }
 }
+
+/* Reserve the final height of blocks filled after the data arrives, so nothing below them jumps
+   (measured on the live site at 1280 px and 375 px). */
+#stats { min-height: 110px; }
+#case-filters { min-height: 191px; }
+#timeline { min-height: 443px; }
+@media (max-width: 720px) {
+  #stats { min-height: 287px; }
+  #case-filters { min-height: 496px; }
+  #timeline { min-height: 670px; }
+}
