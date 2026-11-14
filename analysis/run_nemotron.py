@@ -197,6 +197,8 @@ def main() -> None:
     parser.add_argument("--limit", type=int, required=True, help="how many new candidates to send (no default on purpose)")
     parser.add_argument("--rev-id", type=int, action="append", help="only these edits")
     parser.add_argument("--page-id", type=int, action="append", help="only these articles")
+    parser.add_argument("--kind", action="append", choices=["image", "sources", "framing", "coordination"],
+                        help="only these kinds of candidates")
     parser.add_argument("--workers", type=int, default=2)
     args = parser.parse_args()
     load_env()
@@ -214,7 +216,8 @@ def main() -> None:
     rows = [r for r in read_jsonl(args.candidates)
             if r["rev_id"] not in done
             and (not args.rev_id or r["rev_id"] in args.rev_id)
-            and (not args.page_id or r["page_id"] in args.page_id)]
+            and (not args.page_id or r["page_id"] in args.page_id)
+            and (not args.kind or r["kind"] in args.kind)]
     rows.sort(key=priority)
     rows = rows[:args.limit]
     print(f"{len(done)} already in {args.out}; sending {len(rows)}" + (" (MOCK)" if use_mock() else ""))
