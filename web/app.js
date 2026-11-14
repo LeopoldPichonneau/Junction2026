@@ -96,6 +96,29 @@ function verifiedBadge(verified) {
     : el("span", { class: "badge", title: "Computed automatically from the edit history.", text: "Estimate" });
 }
 
+// Cases found by the live watcher (after the dataset's end) say so, with when they were detected.
+function liveBadge(c) {
+  if (c.source !== "live") return null;
+  return el("span", { class: "badge live-watch", title: `Found by the live watcher${c.detected_at ? `, detected ${dateTimeText(c.detected_at)}` : ""}.`, text: c.detected_at ? `Live · detected ${dateTimeText(c.detected_at)}` : "Live" });
+}
+
+// "Last check" line under the home figures: proof that the watcher is running. Counts only.
+async function liveStatusLine(target) {
+  const live = await optional("/api/live");
+  if (!live || !live.enabled || !target) return;
+  const t = live.totals || {};
+  const parts = [
+    `Last check: ${dateTimeText(live.last_check)}`,
+    `every ${live.interval_minutes} min`,
+    `${fmt(t.wikipedia_edits_seen || 0)} Wikipedia edits read since ${formatDate(live.watching_since)}`,
+    `${fmt(t.edits_on_our_articles || 0)} on our articles`,
+    `${fmt((live.cases || {}).candidates || 0)} live candidates`,
+  ];
+  target.after(el("p", { class: "meta live-status", "aria-live": "polite" },
+    el("span", { class: `live-dot${live.last_ok ? "" : " off"}`, "aria-hidden": "true" }),
+    el("strong", { text: live.running ? "Live watch · checking now" : "Live watch" }), ` · ${parts.join(" · ")}`));
+}
+
 // For calls a page can live without (diff, terms, neighbours): never switch the page to the
 // sample data because one of them failed, and never throw.
 async function optional(path) {
@@ -322,6 +345,7 @@ function caseItem(c) {
           "span",
           { class: "badges" },
           el("span", { class: "tag", text: SIGNAL_LABELS[c.signal_type] || c.signal_type }),
+          liveBadge(c),
           c.still_online ? el("span", { class: "badge live", text: "Still online" }) : null,
           el("span", { class: "badge", text: durationText(c.days_live) }),
           c.verified ? verifiedBadge(true) : null,
@@ -485,6 +509,7 @@ async function pageHome() {
       blocks.push(stat(s.readers_exposed_est, `readers exposed (≈, ${s.readers_note || "upper bound"})${unknown}`, "readers-stat"));
     }
     statsBox.replaceChildren(...blocks);
+    if (!usingMock) liveStatusLine(statsBox);
   } catch (err) {
     errorBox(statsBox, err);
   }
@@ -829,6 +854,7 @@ async function pageCase() {
           el("span", { class: "tag flag", text: SIGNAL_LABELS[c.signal_type] || c.signal_type }),
           el("span", { lang: "fi", text: c.title }),
           el("span", { text: `Edit of ${formatDate(c.date)}` }),
+          liveBadge(c),
           el("span", { class: "tip", tabindex: "0", title: CONFIDENCE_TIP, "data-tip": CONFIDENCE_TIP, text: `Confidence ${confidence}%` })
         ),
         el("h1", { text: c.headline_en }),
@@ -1476,6 +1502,40 @@ function pipelineFigure(steps) {
 
 const pctOf = (share) => (typeof share === "number" ? `${Math.round(share * 100)}%` : "–");
 
+// Live watch figures for the methodology page. Every number comes from /api/live (counted by
+// the watcher itself) and /api/quality; a rate is only shown when its denominator is not zero.
+function liveWatchSection(live, q) {
+  if (!live || !live.enabled) return null;
+  const t = live.totals || {}, c = live.cases || {}, h = live.human || {};
+  const skipped = (t.skipped_revert || 0) + (t.skipped_minor || 0) + (t.skipped_bot || 0) + (t.skipped_null || 0);
+  const rows = [
+    ["Wikipedia edits read (all Finnish articles)", t.wikipedia_edits_seen],
+    ["Edits on our 19,742 articles", t.edits_on_our_articles],
+    ["Left out by rule: reverts, minor edits, declared bots", skipped],
+    ["Ordinary edits: no image, source or wording signal", t.not_candidate],
+    ["Candidates sent to the two models", c.candidates],
+    ["Examined by Nemotron", c.analysed],
+    ["Flagged (both models agree)", c.flag],
+    ["Sent to human review (models disagree)", c.human_review],
+    ["Dismissed", c.dismiss],
+  ];
+  if (typeof h.approve === "number") rows.push(["Human decisions: approve", h.approve], ["Human decisions: reject", h.reject]);
+  const rates = [];
+  const m = q.manual_review, sc = q.synthetic_campaign;
+  if (m && m.reviewed) rates.push(`False alarms among flags re-read by a human: ${m.reviewed - m.correct} of ${m.reviewed} (${pct(m.reviewed - m.correct, m.reviewed)}).`);
+  if (sc && sc.planted) rates.push(`Planted test edits missed: ${sc.planted - sc.caught} of ${sc.planted} (${pct(sc.planted - sc.caught, sc.planted)}).`);
+  if (h.approve + h.reject > 0) rates.push(`Human review of disputed cases: ${h.reject} of ${h.approve + h.reject} rejected (${pct(h.reject, h.approve + h.reject)}) — these would have been false alarms without the two-model rule.`);
+  return section(
+    "Live watch",
+    el("p", { class: "meta", text: `Since ${dateTimeText(live.watching_since)}, a scheduled agent (Hermes, on the same server) checks Wikipedia's recent changes every ${live.interval_minutes} minutes. It only orchestrates: the same rules and the same two models decide. Last check: ${dateTimeText(live.last_check)}.` }),
+    el("div", { class: "table-scroll" }, el("table", { class: "q-table" },
+      el("caption", { class: "sr-only", text: "What the live watcher has seen so far" }),
+      el("tbody", {}, rows.map(([label, v]) => el("tr", {}, el("th", { scope: "row", text: label }), el("td", { text: typeof v === "number" ? fmt(v) : "–" })))))),
+    rates.length ? el("ul", { class: "plain" }, rates.map((r) => el("li", { text: r }))) : null,
+    live.last_run && live.last_run.models_waiting ? el("p", { class: "meta", text: "The models are not connected on the server yet: candidates are queued." }) : null
+  );
+}
+
 async function pageQuality() {
   const box = document.getElementById("quality");
   let q;
@@ -1540,6 +1600,8 @@ async function pageQuality() {
   const blocks = [section("How a case gets published", pipelineFigure(steps),
     el("p", { class: "meta", text: "Nemotron (the investigator) and Gemini (the decider) are two different AI models. When they disagree, nothing is published: a human decides." }))];
   blocks.push(cards.length ? el("div", { class: "quality-grid" }, cards) : el("p", { class: "empty", text: "No quality figures yet." }));
+  const liveBlock = usingMock ? null : liveWatchSection(await optional("/api/live"), q);
+  if (liveBlock) blocks.push(liveBlock);
 
   // Rarely watched articles: suspicious edits stay online longer.
   const lt = q.long_tail;

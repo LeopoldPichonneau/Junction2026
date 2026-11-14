@@ -585,3 +585,9 @@ main { min-height: 100vh; }
   .translation { grid-template-columns: 1fr; }
   .funnel li + li::before { margin: 0 8px; }
 }
+
+/* Live watcher: "Last check" line on the home page and the badge of cases it found. */
+.live-status { margin: 14px 0 0; font-size: var(--fs-label); }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2fbf71; margin-right: 8px; vertical-align: baseline; }
+.live-dot.off { background: var(--signal); }
+.badge.live-watch { border-color: var(--brand-text); color: var(--brand-text); }
