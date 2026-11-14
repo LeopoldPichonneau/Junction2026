@@ -1,0 +1,37 @@
+{
+  "_about": "Demo cases verified by hand in the raw wikitext (dates in UTC). Finnish quotes are exact excerpts; English lines are the team's translations. No account names.",
+  "cases": [
+    {
+      "rev_id": 23172306, "title": "Suomen sisällissota", "kind": "sources", "date": "2025-04-14",
+      "before_fi": "Valkoisen puolen tekemään terroriin kuuluu myös itsenäisen Suomen historian ainoa etninen joukkomurha, joka toteutettiin Viipurin valtauksen jälkeen.",
+      "before_en": "The terror committed by the White side also includes the only ethnic mass murder in the history of independent Finland, carried out after the capture of Vyborg.",
+      "after_fi": null,
+      "after_en": "Passage deleted with 10 references, under the edit summary \"Korjauksia, faktapohjaisuus\" (corrections, fact-based).",
+      "online": "Online 8 days 18 h (14-23 April 2025), then undone"
+    },
+    {
+      "rev_id": 18437730, "title": "Noormarkku", "kind": "framing", "date": "2019-09-27",
+      "before_fi": "Noormarkun ensimmäinen kirkko paloi kansalaissodan aikana vuonna 1918",
+      "before_en": "Noormarkku's first church burned during the civil war in 1918",
+      "after_fi": "Noormarkun ensimmäinen kirkko paloi punakapinan aikana vuonna 1918",
+      "after_en": "Noormarkku's first church burned during the Red rebellion in 1918",
+      "online": "Online 316 days, re-imposed by another account for 929 more days (2019-2023)"
+    },
+    {
+      "rev_id": 18921526, "title": "Kuivaniemi", "kind": "framing", "date": "2020-05-12",
+      "before_fi": "Iivari Ellilä (1892−1918), luutnantti kansalaissodassa.",
+      "before_en": "Iivari Ellilä (1892-1918), lieutenant in the civil war.",
+      "after_fi": "Iivari Ellilä (1892−1918), jääkäriluutnantti vapaussodassa.",
+      "after_en": "Iivari Ellilä (1892-1918), Jäger lieutenant in the War of Liberation.",
+      "online": "Online since 12 May 2020, still online at the end of the data (October 2026)"
+    },
+    {
+      "rev_id": 24139572, "title": "Karjala", "kind": "image", "date": "2026-07-27",
+      "before_fi": "Historiallinen Suomen Karjala (vaaleampi osa sijaitsee Venäjällä).",
+      "before_en": "Historical Finnish Karelia (the lighter part is located in Russia).",
+      "after_fi": "Historiallinen Suomen Karjala (vaaleampi osa sijaitsee Pian Suomessa).",
+      "after_en": "Historical Finnish Karelia (the lighter part is located soon in Finland).",
+      "online": "Online 2 h 34 min (27 July 2026), then corrected"
+    }
+  ]
+}

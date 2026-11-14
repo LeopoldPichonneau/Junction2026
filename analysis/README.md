@@ -12,6 +12,9 @@ puis les faire examiner par Nemotron. Tout se lance **depuis la racine du dépô
 | 2 | `python analysis/fetch_images.py` | `candidates.jsonl` | `images.jsonl` + remplit `thumb_url`, `author`, `license` dans `candidates.jsonl` | ≈ 1 min |
 | 3 | `python analysis/run_nemotron.py --limit 10` | `candidates.jsonl` | `analysis.jsonl` (format 4.2) | 1-3 s par cas |
 | 4 | `python analysis/insights.py data/versions-01.parquet` | `analysis.jsonl` + parquet | `insights.json` (durée en ligne selon l'attention portée à l'article, comptes récidivistes, comptes neufs, robots écartés) + `case-durations.jsonl` (un cas suspect par ligne) | ≈ 3-5 min |
+| 5 | `python analysis/term_timeline.py data/versions-01.parquet` | parquet | `term-timeline.json` : mois par mois, les noms de la guerre de 1918 (neutres / camp blanc / camp rouge) dans l'article 1150 et dans tous les articles | ≈ 1 min |
+| 6 | `python analysis/still_online.py data/versions-01.parquet` | parquet | `still-online.json` : les termes partisans encore présents dans la dernière version de chaque article, avec leur phrase et depuis quand (liste **à relire**, beaucoup d'usages sont légitimes : titres de livres, citations) | ≈ 1 min |
+| 7 | `python analysis/cloudinary_cards.py --demo` (ou `--rev-id …`, `--suspicious`) | `analysis.jsonl`, `analysis/demo_cases.json` | `cloudinary.jsonl` : pour chaque cas, l'image de l'époque envoyée à Cloudinary (avec ses preuves en métadonnées) et l'adresse de sa **carte de preuve** 1200×630 (avant / après, traduction anglaise, date, durée, auteur et licence) | < 1 min |
 | — | `python analysis/check_nemotron.py` | `.env` | rien : dit si le serveur Nemotron répond | < 10 min |
 
 - Plusieurs fichiers d'un coup : `python analysis/find_candidates.py data/versions-01.parquet data/versions-02.parquet …`
