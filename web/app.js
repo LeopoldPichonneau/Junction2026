@@ -324,7 +324,8 @@ function caseItem(c) {
           el("span", { class: "tag", text: SIGNAL_LABELS[c.signal_type] || c.signal_type }),
           c.still_online ? el("span", { class: "badge live", text: "Still online" }) : null,
           el("span", { class: "badge", text: durationText(c.days_live) }),
-          c.verified ? verifiedBadge(true) : null
+          c.verified ? verifiedBadge(true) : null,
+          c.has_compare ? el("span", { class: "badge", title: "This case has a before / after picture slider", text: "Before / after" }) : null
         ),
         el("span", { lang: "fi", text: c.title }),
         el("span", { text: formatDate(c.date) })
@@ -642,12 +643,55 @@ function chronology(c, ex) {
   return section("Chronology", el("ol", { class: "chrono" }, steps));
 }
 
-// Evidence card made by Cloudinary (1200 x 630, the size used by link previews).
-function cardSection(c) {
-  if (!c.evidence_card_url) return null;
+// Before / after slider for a picture case. Both sides are archived pictures rendered by Cloudinary
+// at the same size and framing: two different pictures when the edit replaced one, or the same
+// picture twice when only the words under it changed.
+// The control is a native range input: arrow keys, Home / End and touch work without extra code.
+function compareSlider(cmp, title) {
+  const before = el("img", { src: cmp.before_url, width: "1200", height: "800", loading: "lazy", crossorigin: "anonymous", referrerpolicy: "no-referrer",
+    alt: `Before the edit: the picture in “${title}”${cmp.kind === "replaced" && cmp.before_file ? ` (${cmp.before_file})` : ""}, ${cmp.before_caption ? `with the caption “${cmp.before_caption}”` : "without a caption"}` });
+  const after = el("img", { class: "cmp-top", src: cmp.after_url, width: "1200", height: "800", loading: "lazy", crossorigin: "anonymous", referrerpolicy: "no-referrer",
+    alt: `After the edit: ${cmp.kind === "replaced" ? `another picture${cmp.after_file ? ` (${cmp.after_file})` : ""}${cmp.before_moved ? " in the same place" : ""}` : "the same picture"}, ${cmp.after_caption ? `with the caption “${cmp.after_caption}”` : "without a caption"}` });
+  const handle = el("span", { class: "cmp-handle", "aria-hidden": "true" });
+  const tags = [el("span", { class: "cmp-tag left", "aria-hidden": "true", text: "Before" }), el("span", { class: "cmp-tag right", "aria-hidden": "true", text: "After" })];
+  const range = el("input", { type: "range", min: "0", max: "100", value: "50", step: "1", id: "cmp-range",
+    "aria-label": "Before and after: left of the handle is the picture before the edit, right of it the picture after. Arrow keys move the handle." });
+  const stage = el("div", { class: "cmp-stage" }, before, after, handle, tags);
+  const set = () => {
+    const v = Number(range.value);
+    // Left of the handle: before. Right of it: after (the top picture, clipped).
+    stage.style.setProperty("--cut", `${v}%`);
+    range.setAttribute("aria-valuetext", v === 100 ? "Before the edit only" : v === 0 ? "After the edit only" : `${v}% before, ${100 - v}% after`);
+  };
+  range.addEventListener("input", set);
+  set();
+  const caption = (label, cls, fi, en) => el("div", {},
+    el("p", { class: `label-small diff-label ${cls}`, text: label }),
+    el("p", { class: "cmp-caption", lang: "fi", text: fi || "(none)" }),
+    en ? el("p", { class: "meta", lang: "en", text: en }) : null);
+  return el(
+    "figure",
+    { class: "cmp" },
+    stage,
+    el("div", { class: "cmp-control" }, range),
+    el("figcaption", { class: "grid2" },
+      caption("Caption before", "minus", cmp.before_caption, cmp.before_caption_en),
+      caption("Caption after", "plus", cmp.after_caption, cmp.after_caption_en))
+  );
+}
+
+// "Visual evidence": what Cloudinary keeps and renders from the exact versions (before / after
+// pictures, archived copies of the pictures).
+function visualSection(c) {
+  const v = c.visual;
+  if (!v) return null;
+  // One archived copy per picture: two when the edit replaced a picture by another.
+  const copies = Array.isArray(v.archive) ? v.archive.filter((a) => a && a.archived_url && plainText(a.author) && a.license) : [];
+  if (!v.compare && !copies.length) return null;
+  const replaced = v.compare && v.compare.kind === "replaced";
   const shareUrl = `${location.origin}/case/${encodeURIComponent(c.rev_id)}`;
   const note = el("span", { class: "note", "aria-live": "polite" });
-  const share = el("button", { type: "button", class: "pill", text: "Share" });
+  const share = el("button", { type: "button", class: "pill", text: "Share this case" });
   share.addEventListener("click", async () => {
     try {
       if (navigator.share) await navigator.share({ title: c.headline_en, url: shareUrl });
@@ -656,14 +700,25 @@ function cardSection(c) {
       note.textContent = `Copy this link: ${shareUrl}`;
     }
   });
-  // fl_attachment makes Cloudinary send the image as a download (a cross-site "download" attribute is ignored).
-  const download = c.evidence_card_url.replace("/image/upload/", `/image/upload/fl_attachment:timeproof-case-${c.rev_id}/`);
   return section(
-    "Evidence card",
-    el("figure", { class: "evidence-card" },
-      el("img", { src: c.evidence_card_url, alt: `Evidence card: ${c.headline_en || c.title}, before and after the edit`, loading: "lazy", crossorigin: "anonymous", referrerpolicy: "no-referrer", width: "1200", height: "630" }),
-      el("figcaption", { text: "Made with Cloudinary from the exact versions. Text from Finnish Wikipedia, CC BY-SA 4.0." })),
-    el("div", { class: "actions" }, share, el("a", { class: "pill secondary", href: download, text: "Download card" }), note)
+    "Visual evidence",
+    v.compare ? el("h3", { class: "label-small cmp-title", text: replaced ? (v.compare.before_moved ? "The picture at this place, before and after the edit" : "The picture before and after the edit") : "Same picture, different story" }) : null,
+    replaced && v.compare.before_moved
+      ? el("p", { class: "meta", text: `The earlier picture${v.compare.before_file ? ` (${v.compare.before_file})` : ""} was not removed: the edit moved it lower in the article and put another one in its place.` })
+      : null,
+    v.compare ? compareSlider(v.compare, c.title) : null,
+    v.compare ? el("p", { class: "meta", text: "Both sides are rendered by Cloudinary from the archived pictures, at the same size and framing. Text from Finnish Wikipedia, CC BY-SA 4.0." }) : null,
+    copies.length
+      ? el("ul", { class: "archive plain" }, copies.map((a) =>
+          el("li", {},
+            copies.length > 1 ? `${a.side === "before" ? "Picture before" : "Picture after"}: ` : null,
+            el("a", { href: a.archived_url, target: "_blank", rel: "noopener", text: "Archived copy" }),
+            " (kept by TimeProof on Cloudinary with its date, author and license)",
+            a.original_url ? " · " : null,
+            a.original_url ? el("a", { href: a.original_url, target: "_blank", rel: "noopener", text: "Original on Wikimedia Commons" }) : null,
+            ` · ${plainText(a.author)}, ${a.license}`)))
+      : null,
+    el("div", { class: "actions" }, share, note)
   );
 }
 
@@ -807,7 +862,7 @@ async function pageCase() {
     chronology(c, ex),
     captionBlock(c.image, Boolean(figure)),
     diffSection(c, diff),
-    cardSection(c),
+    visualSection(c),
 
     section(
       `Investigator · ${inv.model || "unknown model"}`,
