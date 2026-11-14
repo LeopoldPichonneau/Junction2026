@@ -55,7 +55,10 @@ CREATE TABLE IF NOT EXISTS account_profile (
 -- run a GROUP BY over 862,000 rows.
 CREATE TABLE IF NOT EXISTS article_stats (
   page_id INT UNSIGNED PRIMARY KEY, title VARCHAR(255) NOT NULL,
-  versions INT UNSIGNED NOT NULL, first_edit DATE NOT NULL, last_edit DATE NOT NULL
+  versions INT UNSIGNED NOT NULL, first_edit DATE NOT NULL, last_edit DATE NOT NULL,
+  -- For /api/articles?q=. This file only runs on an empty base; on an existing one, run:
+  -- CREATE INDEX IF NOT EXISTS title_key ON article_stats (title);
+  KEY title_key (title)
 ) CHARACTER SET utf8mb4;
 
 CREATE TABLE IF NOT EXISTS article_timeline (
