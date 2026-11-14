@@ -1,6 +1,6 @@
 # TimeProof — Visual identity
 
-Inspired by: "Wikipedia concept of web site. With mobile version" by M ART (Behance). **Principles only**: a saturated blue hero band with a large white serif headline, a slim dark side rail for navigation, two-tone section headings (second word in the brand colour), alternating text/image rows, small pill buttons, a light grey footer bar, serif for reading. Nothing copied: no logo or "W" tile, no section names, no photos, no category-icon grid, and the blue is the reference's soft hero blue `#447cbb` (chosen by the team), which is not Wikimedia's interface blue (`#36c` / `#0645ad`).
+Inspired by: "Wikipedia concept of web site. With mobile version" by M ART (Behance). **Principles only**: a saturated blue hero band with a large white serif headline, a slim dark side rail for navigation, two-tone section headings (second word in the brand colour), alternating text/image rows, small pill buttons, a light grey footer bar, serif for reading. Nothing copied: no logo or "W" tile, no section names, no photos, no category-icon grid, and the blue is the reference's soft hero blue `#447cbb` (chosen by the team, darkened to `#3f74b0` on 14 Nov for WCAG AA contrast), which is not Wikimedia's interface blue (`#36c` / `#0645ad`).
 
 **TimeProof must never look like a Wikimedia product.** It is independent evidence about Wikipedia. Never use the Wikipedia wordmark, the puzzle globe, a "W" tile, or "wikipedia" as a title; the TimeProof "TP" mark and wordmark are always visible.
 
@@ -13,9 +13,11 @@ Mood in 3 words: **clear, confident, evidential.**
 | `--bg` / `--surface` | `#ffffff` | `#121317` / `#1a1b21` | Page, cards |
 | `--surface-2` | `#f2f3f7` | `#1d1f26` | Quiet rows, footer bar |
 | `--rail` / `--rail-text` / `--rail-muted` | `#2b2d33` / `#f2f3f7` / `#b9bcc6` | `#0b0c0f` / `#f2f3f7` / `#a3a7b3` | Side rail |
-| `--brand` | `#447cbb` | `#447cbb` | **Fill only**, always under white text: hero band, pill buttons, case hero, buttons. White on it 4.3:1, so text on it is white (never tinted), large or semibold |
-| `--button` / `--button-hover` | `#3687eb` / `#2a74d4` | same | Pill buttons (bright reference blue, white text 3.6:1, kept semibold) |
-| `--brand-text` | `#3687eb` | `#3687eb` | Blue **text or marks on the page background**: two-tone words, timeline bars, active rail marker (≥ 4.5:1 in both themes) |
+| `--brand` | `#3f74b0` | `#3f74b0` | **Fill only**, always under white text: hero band, case hero, TP mark. White on it **4.8:1** (was `#447cbb`, 4.3:1, below AA) |
+| `--button` / `--button-hover` | `#2a6fcf` / `#1e5fb8` | same | Pill buttons, white text **4.9:1** / 6.2:1 (was `#3687eb`, 3.6:1, below AA) |
+| `--brand-text` | `#2a6fcf` | `#3687eb` | Blue **text or marks on the page background**: two-tone words, timeline bars, active rail marker: 4.9:1 light, 5.2:1 dark (light was `#3687eb`, 3.6:1) |
+| `--field-border` | `#7e8392` | `#6b6f7d` | Borders of inputs and selects: 3.4–3.8:1, WCAG asks 3:1 for controls (`--line` stays for hairlines) |
+| `--focus` | `#2a6fcf` | `#7fb0ec` | 2px focus ring on every focusable element; white ring plus blue halo on blue or dark bands |
 | `--brand-strong` / `--brand-soft` | `#3a6ca6` / `#e8f0f9` | `#3a6ca6` / `#1b2636` | Hover; tinted backgrounds |
 | `--on-brand` / `--on-brand-muted` | `#ffffff` / `#ffffff` | `#ffffff` / `#ffffff` | Text on the blue band |
 | `--line` | `#e1e3ea` | `#2c2e37` | Hairlines |
@@ -26,7 +28,7 @@ Mood in 3 words: **clear, confident, evidential.**
 | `--removed` / `--removed-text` | `#fbeae8` / `#8f1c13` | `#3a1d1a` / `#ffb3aa` | Diff: removed |
 | (mock badge) | `--rail` + `--rail-text` | same | "Sample data" corner badge, only on local mock pages |
 
-**Lens (bookmarklet)**: it cannot load this file, so `lens/build_bookmarklet.py` inlines these hex values: outline `#b42318` (3px), tooltip background `#2b2d33` with text `#f2f3f7`, a `#447cbb` "TP" badge and the TimeProof wordmark in the tooltip so it never looks like native Wikipedia UI.
+**Lens (bookmarklet)**: it cannot load this file, so `lens/build_bookmarklet.py` inlines these hex values: outline `#b42318` (3px), tooltip background `#2b2d33` with text `#f2f3f7`, a `#3f74b0` "TP" badge, `#2a6fcf` buttons and the TimeProof wordmark in the tooltip so it never looks like native Wikipedia UI.
 
 ## Typography
 
@@ -89,3 +91,10 @@ Don't:
 3. Don't reuse the reference's section names, "W" tile, photos or icon grid.
 4. Don't let anything look like Wikipedia's own interface or branding.
 5. Don't use colour alone to carry meaning (always a label too).
+
+## Accessibility (WCAG 2.2 AA, checked 14 Nov 2026)
+- Every text pair reaches 4.5:1 (large text 3:1); controls and focus rings 3:1. Ratios are listed in the colour table.
+- Colour never carries meaning alone: diffs say "− Removed / + Added", statuses are written out, chart series have a legend and a table.
+- Skip link, visible focus, one h1 per page, real h2 section titles, `lang="fi"` on Finnish quotes.
+- The time-machine chart is one keyboard stop (arrows, Page Up/Down, Home/End, Enter) with a per-year table.
+- `prefers-reduced-motion` respected; light/dark switch in the rail, remembered locally when the browser allows it.

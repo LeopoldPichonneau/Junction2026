@@ -8,12 +8,16 @@
   --rail: #2b2d33;           /* slim dark side rail */
   --rail-text: #f2f3f7;
   --rail-muted: #b9bcc6;
-  --brand: #447cbb;          /* reference blue: hero band, pills, buttons (fill under white text) */
+  /* Blues darkened slightly from the reference (#447cbb, #3687eb) so white text on them reaches
+     WCAG AA 4.5:1; same hues. Ratios are in identity.md. */
+  --brand: #3f74b0;          /* hero band, case hero, TP mark (fill under white text, 4.8:1) */
   --brand-strong: #3a6ca6;   /* hover */
   --brand-soft: #e8f0f9;
-  --brand-text: #3687eb;     /* bright reference blue: two-tone words, timeline bars */
-  --button: #3687eb;         /* bright reference blue: pill buttons */
-  --button-hover: #2a74d4;
+  --brand-text: #2a6fcf;     /* blue text and marks on the page: two-tone words, timeline bars (4.9:1) */
+  --button: #2a6fcf;         /* pill buttons, white text 4.9:1 */
+  --button-hover: #1e5fb8;
+  --field-border: #7e8392;   /* inputs and selects: 3:1 against the page, as WCAG asks for controls */
+  --focus: #2a6fcf;          /* 2px focus ring */
   --on-brand: #ffffff;
   --on-brand-muted: #ffffff;
   --line: #e1e3ea;
@@ -63,12 +67,14 @@
     --rail: #0b0c0f;
     --rail-text: #f2f3f7;
     --rail-muted: #a3a7b3;
-    --brand: #447cbb;
+    --brand: #3f74b0;
     --brand-strong: #3a6ca6;
-    --brand-soft: #1b2636;
+    --brand-soft: #141c29;
     --brand-text: #3687eb;
-    --button: #3687eb;
-    --button-hover: #2a74d4;
+    --button: #2a6fcf;
+    --button-hover: #1e5fb8;
+    --field-border: #6b6f7d;
+    --focus: #7fb0ec;
     --on-brand: #ffffff;
     --on-brand-muted: #ffffff;
     --line: #2c2e37;
@@ -93,12 +99,14 @@
   --rail: #0b0c0f;
   --rail-text: #f2f3f7;
   --rail-muted: #a3a7b3;
-  --brand: #447cbb;
+  --brand: #3f74b0;
   --brand-strong: #3a6ca6;
-  --brand-soft: #1b2636;
+  --brand-soft: #141c29;
   --brand-text: #3687eb;
-  --button: #3687eb;
-  --button-hover: #2a74d4;
+  --button: #2a6fcf;
+  --button-hover: #1e5fb8;
+  --field-border: #6b6f7d;
+  --focus: #7fb0ec;
   --on-brand: #ffffff;
   --on-brand-muted: #ffffff;
   --line: #2c2e37;

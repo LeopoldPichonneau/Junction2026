@@ -118,9 +118,74 @@ const ACCOUNT_LABELS = {
   normal: "No unusual pattern",
 };
 
-function errorBox(target, err) {
-  target.replaceChildren(el("p", { class: "error", text: "Could not load data. Please try again later." }));
+// An error says what happened and offers a way out, instead of leaving a dead page.
+function errorBox(target, err, retry) {
+  const again = el("button", { type: "button", class: "pill", text: "Try again" });
+  again.addEventListener("click", () => (retry ? retry() : location.reload()));
+  target.replaceChildren(
+    el("div", { class: "error-box", role: "alert" }, el("p", { class: "error", text: "Could not load data. The server may be busy." }), again)
+  );
+  target.removeAttribute("aria-busy");
   console.error(err);
+}
+
+// Discreet grey bars while data loads (they pulse unless the reader asked for reduced motion).
+function skeleton(target) {
+  target.setAttribute("aria-busy", "true");
+  target.replaceChildren(el("div", { class: "skeleton", "aria-hidden": "true" }, el("i"), el("i"), el("i")), el("span", { class: "sr-only", text: "Loading…" }));
+}
+
+// "≈" marks an upper bound: wrap it so its meaning shows on hover, keyboard focus and tap.
+const APPROX_TIP = "Upper bound: daily views of the whole article over that period (Wikimedia pageviews, since July 2015).";
+function explainApprox(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeValue.includes("≈") && !n.parentElement.closest("abbr, option, select")) nodes.push(n);
+  }
+  for (const n of nodes) {
+    const parts = n.nodeValue.split("≈");
+    const frag = document.createDocumentFragment();
+    parts.forEach((p, i) => {
+      if (i) frag.append(el("abbr", { class: "approx", title: APPROX_TIP, "data-tip": APPROX_TIP, tabindex: "0", text: "≈" }));
+      frag.append(p);
+    });
+    n.replaceWith(frag);
+  }
+}
+
+// Light / dark theme chosen by the reader, remembered when the browser allows it (the site works without).
+function currentTheme() {
+  const set = document.documentElement.dataset.theme;
+  if (set) return set;
+  return window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function themeButton() {
+  const b = el("button", { type: "button", class: "theme-toggle" });
+  const paint = () => {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    b.setAttribute("aria-label", `Switch to ${next} theme`);
+    b.title = `Switch to ${next} theme`;
+    b.innerHTML = next === "dark" // static, trusted markup
+      ? `<svg ${ICON_ATTRS}><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>`
+      : `<svg ${ICON_ATTRS}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
+  };
+  b.addEventListener("click", () => {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("tp-theme", next); } catch (_) { /* private mode: the choice lasts for this page only */ }
+    paint();
+  });
+  paint();
+  return b;
+}
+
+// The home page remembers its filters so a case page can link "Back to results" to the same view.
+function rememberResults(query) {
+  try { sessionStorage.setItem("tp-results", query); } catch (_) { /* storage blocked: plain link instead */ }
+}
+function resultsLink() {
+  try { return "index.html" + (sessionStorage.getItem("tp-results") || ""); } catch (_) { return "index.html"; }
 }
 
 // ---------- Layout shared by every page ----------
@@ -155,7 +220,8 @@ function renderLayout() {
     el(
       "div",
       { class: "inner" },
-      el("a", { class: "brand-mark", href: "index.html", title: "TimeProof home", "aria-label": "TimeProof home", text: "TP" }),
+      // The accessible name starts with the visible "TP", as WCAG 2.5.3 asks.
+      el("a", { class: "brand-mark", href: "index.html", title: "TimeProof home", "aria-label": "TP, TimeProof home", text: "TP" }),
       el(
         "nav",
         { "aria-label": "Main" },
@@ -165,7 +231,8 @@ function renderLayout() {
           a.append(el("span", { text: label }));
           return a;
         })
-      )
+      ),
+      themeButton()
     )
   );
   const footer = el(
@@ -193,6 +260,18 @@ function renderLayout() {
   document.body.prepend(header);
   document.body.append(footer);
   if (usingMock) showMockBanner();
+
+  // Skip link first in the tab order, pointing at the main content.
+  const main = document.querySelector("main");
+  if (main) {
+    main.id = main.id || "main";
+    main.setAttribute("tabindex", "-1");
+    document.body.prepend(el("a", { class: "skip-link", href: `#${main.id}`, text: "Skip to content" }));
+  }
+  // Static "Loading…" placeholders become skeletons until the data arrives.
+  document.querySelectorAll("p.empty").forEach((p) => {
+    if (p.textContent.trim() === "Loading…" && p.parentElement) skeleton(p.parentElement);
+  });
 }
 
 // ---------- Home: stats + published cases ----------
@@ -201,7 +280,7 @@ function caseItem(c) {
   // The list format has no credit by default: a thumbnail only appears when author and license come with it.
   const author = plainText(c.image_author);
   const thumb = c.image_thumb && author && c.image_license
-    ? el("figure", {}, el("img", { src: c.image_thumb, alt: "", loading: "lazy" }), el("figcaption", { text: `${author} · ${c.image_license}` }))
+    ? el("figure", {}, el("img", { src: c.image_thumb, alt: "", loading: "lazy", crossorigin: "anonymous", referrerpolicy: "no-referrer" }), el("figcaption", { text: `${author} · ${c.image_license}` }))
     : null;
   const href = `case.html?rev_id=${encodeURIComponent(c.rev_id)}`;
   // Only the button opens the case: the row itself is plain text.
@@ -287,6 +366,12 @@ function setupCaseFilters(cases, casesBox) {
     reset
   );
 
+  function emptyFilters() {
+    const clear = el("button", { type: "button", class: "pill secondary", text: "Clear the filters" });
+    clear.addEventListener("click", () => reset.click());
+    return el("div", { class: "empty-box" }, el("p", { class: "empty", text: "No case matches these filters." }), clear);
+  }
+
   function apply() {
     const words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const lo = from.value <= to.value ? from.value : to.value;
@@ -305,7 +390,7 @@ function setupCaseFilters(cases, casesBox) {
     sortName.textContent = SORTS[sort.value][0].toLowerCase();
     countBox.textContent = shown.length === cases.length ? `${cases.length} cases` : `${shown.length} of ${cases.length} cases`;
     casesBox.replaceChildren(
-      ...(shown.length ? shown.map(caseItem) : [el("p", { class: "empty", text: "No case matches these filters." })])
+      ...(shown.length ? shown.map(caseItem) : [emptyFilters()])
     );
     // Keep the view in the address bar (shareable), without adding history entries.
     const p = new URLSearchParams();
@@ -315,6 +400,8 @@ function setupCaseFilters(cases, casesBox) {
     }
     if (params.get("mock") === "1") p.set("mock", "1");
     history.replaceState(null, "", p.toString() ? `?${p}` : location.pathname);
+    rememberResults(p.toString() ? `?${p}` : "");
+    explainApprox(casesBox);
   }
 
   q.addEventListener("input", apply);
@@ -377,18 +464,25 @@ async function pageHome() {
 // ---------- Case page: the evidence ----------
 
 function section(title, ...content) {
-  return el("div", { class: "card" }, el("p", { class: "label-small", text: title }), ...content);
+  return el("section", { class: "card" }, el("h2", { class: "label-small", text: title }), ...content);
+}
+
+// Alternative text describes the picture (what the investigator saw), never just a file name.
+function imageAlt(img, shows) {
+  if (shows) return `Image in the article: ${shows}`;
+  if (img.caption_new) return `Image in the article, captioned: ${img.caption_new}`;
+  return "Image in the article (no description available)";
 }
 
 // An image without author and license must not be displayed: returns null in that case.
-function creditedFigure(img) {
+function creditedFigure(img, shows) {
   if (!img || !img.thumb_url) return null;
   const author = plainText(img.author);
   if (!author || !img.license) return null;
   return el(
     "figure",
     {},
-    el("img", { src: img.thumb_url, alt: img.caption_new || img.file || "" }),
+    el("img", { src: img.thumb_url, alt: imageAlt(img, shows), crossorigin: "anonymous", referrerpolicy: "no-referrer" }),
     el("figcaption", {}, `${img.file || ""} · ${author} · ${img.license}`)
   );
 }
@@ -401,14 +495,16 @@ function captionBlock(img, shown) {
     el(
       "div",
       { class: "grid2" },
-      el("div", {}, el("p", { class: "label-small", text: "Before" }), el("p", { class: "caption-old", text: img.caption_old || "(none)" })),
-      el("div", {}, el("p", { class: "label-small", text: "After" }), el("p", { class: "caption-new", text: img.caption_new || "(none)" }))
+      el("div", {}, el("p", { class: "label-small diff-label minus", text: "Before" }), el("p", { class: "caption-old", lang: "fi", text: img.caption_old || "(none)" })),
+      el("div", {}, el("p", { class: "label-small diff-label plus", text: "After" }), el("p", { class: "caption-new", lang: "fi", text: img.caption_new || "(none)" }))
     )
   );
 }
 
 async function pageCase() {
   const box = document.getElementById("case");
+  const back = document.querySelector("a.back-link");
+  if (back) back.href = resultsLink();
   const revId = params.get("rev_id");
   if (!revId || !/^\d+$/.test(revId)) {
     box.replaceChildren(el("p", { class: "error", text: "Missing case id." }));
@@ -429,7 +525,7 @@ async function pageCase() {
   const findings = inv.image_findings;
 
   // Wrapped in a div so optional blocks (null) are skipped by el() instead of printed as "null".
-  const figure = creditedFigure(c.image);
+  const figure = creditedFigure(c.image, findings && findings.what_it_shows);
 
   box.replaceChildren(el("div", {},
     el(
@@ -443,11 +539,18 @@ async function pageCase() {
           "div",
           { class: "meta" },
           el("span", { class: "tag flag", text: SIGNAL_LABELS[c.signal_type] || c.signal_type }),
-          el("span", { text: c.title }),
+          el("span", { lang: "fi", text: c.title }),
           el("span", { text: `Edit of ${formatDate(c.date)}` }),
           el("span", { text: `Confidence ${Math.round((c.confidence || 0) * 100)}%` })
         ),
         el("h1", { text: c.headline_en }),
+        el(
+          "ul",
+          { class: "glance", "aria-label": "At a glance" },
+          el("li", {}, el("strong", { text: "What" }), `${SIGNAL_LABELS[c.signal_type] || c.signal_type} in “${c.title}”, edit of ${formatDate(c.date)}`),
+          el("li", {}, el("strong", { text: "How long" }), ex.still_online ? `still online after ${durationText(ex.days_live)}` : `online for ${durationText(ex.days_live)}`),
+          el("li", {}, el("strong", { text: "Readers" }), readersText(ex.readers_est))
+        ),
         el("p", { class: "lead", text: c.summary_en })
       )
     ),
@@ -455,7 +558,7 @@ async function pageCase() {
     el(
       "div",
       { class: "band exposure-band" },
-      el("p", { class: "label-small", text: "Exposure" }),
+      el("h2", { class: "label-small", text: "Exposure" }),
       el("div", { class: "exposure", text: exposureText(ex.days_live, ex.readers_est, ex.still_online) }),
       el(
         "p",
@@ -473,8 +576,8 @@ async function pageCase() {
           el(
             "div",
             { class: "grid2" },
-            el("div", {}, el("p", { class: "label-small", text: "Removed" }), el("div", { class: "diff-removed", text: c.removed || "(nothing)" })),
-            el("div", {}, el("p", { class: "label-small", text: "Added" }), el("div", { class: "diff-added", text: c.added || "(nothing)" }))
+            el("div", {}, el("p", { class: "label-small diff-label minus", text: "Removed" }), el("div", { class: "diff-removed", lang: "fi", text: c.removed || "(nothing)" })),
+            el("div", {}, el("p", { class: "label-small diff-label plus", text: "Added" }), el("div", { class: "diff-added", lang: "fi", text: c.added || "(nothing)" }))
           )
         )
       : null,
@@ -562,36 +665,80 @@ function renderTimeline(box, rows, cases, onPick) {
     );
   };
   const resetReadout = () =>
-    readout.replaceChildren(`${monthLabel(rows[0].month)} – ${monthLabel(rows[rows.length - 1].month)} · hover or tap a month to read its values, click to open the article at that date.`);
+    readout.replaceChildren(`${monthLabel(rows[0].month)} – ${monthLabel(rows[rows.length - 1].month)} · hover or tap a month to read its values, click to open the article at that date. With a keyboard: focus the chart, then use the arrow keys.`);
 
-  const bars = rows.map((r) => {
-    const bar = el("div", { class: "bar", role: "button", tabindex: "0", "aria-label": `${monthLabel(r.month)}: ${r.edits} edits, ${r.reverts} reverts` });
+  // Bars are drawn for the mouse; the keyboard and screen readers use the chart as a single
+  // slider (one tab stop instead of hundreds of 3 px targets), plus a table by year below.
+  let current = rows.length - 1;
+  const bars = rows.map((r, i) => {
+    const bar = el("div", { class: "bar", "aria-hidden": "true" });
     bar.style.height = `${(r.edits / top) * 100}%`;
     const rev = el("div", { class: "rev" });
     rev.style.height = r.edits ? `${(r.reverts / r.edits) * 100}%` : "0";
     bar.append(rev);
-    if (casesByMonth.has(r.month)) bar.append(el("span", { class: "case-mark", title: "TimeProof case" }));
+    if (casesByMonth.has(r.month)) bar.append(el("span", { class: "case-mark" }));
     bar.addEventListener("mouseenter", () => describe(r));
-    bar.addEventListener("focus", () => describe(r));
     bar.addEventListener("click", () => {
-      describe(r);
+      setCurrent(i);
       onPick(r.month, bar);
-    });
-    bar.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        bar.click();
-      }
     });
     return bar;
   });
+  const valueText = (r) => {
+    const n = (casesByMonth.get(r.month) || []).length;
+    return `${monthLabel(r.month)}: ${r.edits} edits, ${r.reverts} reverts${n ? `, ${n} TimeProof case${n === 1 ? "" : "s"}` : ""}`;
+  };
+  function setCurrent(i) {
+    current = Math.max(0, Math.min(rows.length - 1, i));
+    bars.forEach((b, j) => b.classList.toggle("current", j === current));
+    plot.setAttribute("aria-valuenow", String(current));
+    plot.setAttribute("aria-valuetext", valueText(rows[current]));
+    describe(rows[current]);
+  }
 
   // Y axis: 0, half and top of the scale, with grid lines behind the bars.
   const yTicks = [top, top / 2, 0];
   const yAxis = el("div", { class: "tm-y" }, yTicks.map((v) => el("span", { text: fmt(v) })));
   const grid = el("div", { class: "tm-grid" }, yTicks.map(() => el("i")));
-  const plot = el("div", { class: "timeline" }, grid, ...bars);
-  plot.addEventListener("mouseleave", resetReadout);
+  const plot = el("div", {
+    class: "timeline", tabindex: "0", role: "slider",
+    "aria-label": `Edits per month, ${monthLabel(rows[0].month)} to ${monthLabel(rows[rows.length - 1].month)}. Arrow keys change the month, Page Up and Page Down jump a year, Enter opens the article at that month.`,
+    "aria-valuemin": "0", "aria-valuemax": String(rows.length - 1),
+  }, grid, ...bars);
+  plot.addEventListener("mouseleave", () => (document.activeElement === plot ? describe(rows[current]) : resetReadout()));
+  plot.addEventListener("focus", () => setCurrent(current));
+  plot.addEventListener("keydown", (e) => {
+    const moves = { ArrowLeft: -1, ArrowDown: -1, ArrowRight: 1, ArrowUp: 1, PageDown: -12, PageUp: 12 };
+    if (e.key in moves) setCurrent(current + moves[e.key]);
+    else if (e.key === "Home") setCurrent(0);
+    else if (e.key === "End") setCurrent(rows.length - 1);
+    else if (e.key === "Enter" || e.key === " ") onPick(rows[current].month, bars[current]);
+    else return;
+    e.preventDefault();
+  });
+  plot.setAttribute("aria-valuenow", String(current));
+  plot.setAttribute("aria-valuetext", valueText(rows[current]));
+
+  // The same numbers as a table, one row per year, for screen readers and anyone who prefers text.
+  const byYear = new Map();
+  for (const r of rows) {
+    const y = r.month.slice(0, 4);
+    const t = byYear.get(y) || { edits: 0, reverts: 0, cases: 0 };
+    t.edits += r.edits; t.reverts += r.reverts; t.cases += (casesByMonth.get(r.month) || []).length;
+    byYear.set(y, t);
+  }
+  const table = el(
+    "details",
+    { class: "tm-table" },
+    el("summary", { text: "Show the numbers as a table (per year)" }),
+    el(
+      "table",
+      {},
+      el("caption", { class: "sr-only", text: "Edits, reverts and TimeProof cases per year" }),
+      el("thead", {}, el("tr", {}, ["Year", "Edits", "Reverts", "TimeProof cases"].map((h) => el("th", { scope: "col", text: h })))),
+      el("tbody", {}, [...byYear].map(([y, t]) => el("tr", {}, el("th", { scope: "row", text: y }), el("td", { text: fmt(t.edits) }), el("td", { text: fmt(t.reverts) }), el("td", { text: fmt(t.cases) }))))
+    )
+  );
 
   // X axis: one label per year, thinned so they never overlap on a phone.
   // Januaries only: the first month is rarely one, and labelling it would crowd the next year.
@@ -627,7 +774,8 @@ function renderTimeline(box, rows, cases, onPick) {
         "reverts (an edit that restores an earlier version)",
         el("i", { class: "legend-case" }),
         "month with a published TimeProof case"
-      )
+      ),
+      table
     )
   );
 }
@@ -659,14 +807,14 @@ async function pageTimeMachine() {
     try {
       const a = await api(`/api/articles/${pageId}?as_of=${encodeURIComponent(asOf)}`);
       textBox.replaceChildren(
-        el("h2", { text: a.title }),
+        el("h2", { lang: "fi", text: a.title }),
         el(
           "p",
           { class: "meta" },
           `As of ${formatDate(asOf)}: version saved on ${formatDate(a.saved_at)} · `,
           el("a", { href: `https://fi.wikipedia.org/?oldid=${a.rev_id}`, target: "_blank", rel: "noopener", text: "open on Wikipedia" })
         ),
-        el("div", { class: "card article-text", text: a.text || "" })
+        el("div", { class: "card article-text", lang: "fi", text: a.text || "" })
       );
       history.replaceState(null, "", `?page_id=${pageId}&as_of=${asOf}${usingMock && !IS_LOCAL ? "&mock=1" : ""}`);
     } catch (err) {
@@ -724,7 +872,7 @@ async function pageQuality() {
   const notes = q.notes || {};
   const cards = [];
   const card = (value, title, sentence) =>
-    cards.push(el("div", { class: "card" }, el("p", { class: "label-small", text: title }), el("div", { class: "value", text: value }), el("p", { text: sentence })));
+    cards.push(el("section", { class: "card" }, el("h2", { class: "label-small", text: title }), el("div", { class: "value", text: value }), el("p", { text: sentence })));
 
   // Each block is optional so the page keeps working if a field is added or dropped.
   if (q.synthetic_campaign) {
@@ -821,5 +969,9 @@ const PAGES = { home: pageHome, case: pageCase, timemachine: pageTimeMachine, qu
 document.addEventListener("DOMContentLoaded", () => {
   renderLayout();
   const run = PAGES[document.body.dataset.page];
-  if (run) run();
+  Promise.resolve(run ? run() : null).finally(() => {
+    document.querySelectorAll("[aria-busy]").forEach((n) => n.removeAttribute("aria-busy"));
+    const main = document.querySelector("main");
+    if (main) explainApprox(main);
+  });
 });
