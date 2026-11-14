@@ -267,6 +267,7 @@ ul.plain li { margin-bottom: 4px; }
 #timeline:has(.tm-empty) { min-height: 0; }
 .tm-empty { margin: 0 0 24px; }
 .in-english { margin: 0 0 12px; }
+.moved-note { margin: 0 0 12px; color: var(--text); }
 .popular { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -8px 0 24px; }
 .popular .label-small { margin: 0 4px 0 0; }
 .tm-log { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--text-2); margin: 0 0 12px; cursor: pointer; min-height: 24px; }

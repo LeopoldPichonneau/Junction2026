@@ -1082,7 +1082,8 @@ function renderTimeline(box, rows, cases, onPick) {
       ),
       table
     ),
-    caseList
+    // No case on this article: pass nothing (replaceChildren would print null as the text "null").
+    ...(caseList ? [caseList] : [])
   );
 }
 
@@ -1276,12 +1277,47 @@ async function pageTimeMachine() {
   let exactAsOf = /T/.test(params.get("as_of") || "") ? params.get("as_of") : null;
   dateInput.value = (params.get("as_of") || "2015-06-01").slice(0, 10);
 
+  // First month with a version of the chosen article ("2020-02"), read from its timeline.
+  let firstMonth = null;
+  let movedNote = null;
+  const monthAfter = (m) => {
+    const [y, mo] = m.split("-").map(Number);
+    return mo === 12 ? `${y + 1}-01-01` : `${y}-${String(mo + 1).padStart(2, "0")}-01`;
+  };
+
+  // The server answers 404 when the article had no version yet at that date: that is an
+  // answer, not a failure, so it must not show "Could not load data".
+  async function getArticle(path) {
+    if (usingMock) return api(path);
+    let r;
+    try {
+      r = await fetch(path, { headers: { Accept: "application/json" } });
+    } catch (_) {
+      return api(path);                     // server unreachable: same fallback as everywhere else
+    }
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
+    return r.json();
+  }
+
   async function loadText() {
     const asOf = exactAsOf && exactAsOf.slice(0, 10) === dateInput.value ? exactAsOf : dateInput.value;
     if (!pageId || !asOf) return;
     textBox.replaceChildren(el("p", { class: "empty", text: "Loading…" }));
     try {
-      const a = await api(`/api/articles/${pageId}?as_of=${encodeURIComponent(asOf)}`);
+      const a = await getArticle(`/api/articles/${pageId}?as_of=${encodeURIComponent(asOf)}`);
+      if (!a) {
+        const first = el("button", { type: "button", class: "pill", text: "Show it just after it was created" });
+        first.addEventListener("click", () => {
+          exactAsOf = null;
+          dateInput.value = monthAfter(firstMonth);
+          loadText();
+        });
+        textBox.replaceChildren(el("div", { class: "empty-box" },
+          el("p", { class: "empty", text: `This article did not exist yet on ${formatDate(asOf.slice(0, 10))}${firstMonth ? `: its first version dates from ${monthLabel(firstMonth)}` : ""}.` }),
+          ...(firstMonth ? [first] : [])));
+        return;
+      }
       input.value = a.title;
       const wikiVersion = `https://fi.wikipedia.org/w/index.php?oldid=${a.rev_id}`;
       textBox.replaceChildren(
@@ -1306,6 +1342,10 @@ async function pageTimeMachine() {
         ),
         el("div", { class: "card article-text", lang: "fi", text: a.text || "" })
       );
+      if (movedNote) {
+        textBox.prepend(el("p", { class: "meta moved-note", role: "status", text: movedNote }));
+        movedNote = null;
+      }
       history.replaceState(null, "", `?page_id=${pageId}&as_of=${encodeURIComponent(asOf)}${usingMock && !IS_LOCAL ? "&mock=1" : ""}`);
     } catch (err) {
       errorBox(textBox, err);
@@ -1323,6 +1363,7 @@ async function pageTimeMachine() {
   async function loadTimeline() {
     try {
       const rows = await api(`/api/articles/${pageId}/timeline`);
+      firstMonth = rows.length ? rows[0].month : null;
       const here = allCases.filter((c) => String(c.page_id) === String(pageId));
       renderTimeline(timelineBox, rows, here, (month, bar) => {
         timelineBox.querySelectorAll(".bar.selected").forEach((b) => b.classList.remove("selected"));
@@ -1354,7 +1395,16 @@ async function pageTimeMachine() {
     pageId = String(id);
     popularBox.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === pageId)));
     // The chart and the 1918 names are drawn before the text arrives, so nothing jumps under the reader's eyes.
+    firstMonth = null;
     await loadTimeline();
+    // The date kept from before can be older than the article (one created in 2020, date in 2015):
+    // open it at its first version instead of answering "not found".
+    if (firstMonth && dateInput.value.slice(0, 7) < firstMonth) {
+      const wanted = formatDate(dateInput.value);
+      exactAsOf = null;
+      dateInput.value = monthAfter(firstMonth);
+      movedNote = `This article was created in ${monthLabel(firstMonth)}, after ${wanted}: it is shown on ${formatDate(dateInput.value)} instead.`;
+    }
     await showTerms();
     await loadText();
   }
