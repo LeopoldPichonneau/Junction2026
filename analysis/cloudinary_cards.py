@@ -1,24 +1,31 @@
-"""Evidence cards for image cases, made by Cloudinary (Cloudinary challenge).
+"""Visual evidence made by Cloudinary (Cloudinary challenge).
 
-For each chosen image case, this script:
-  1. downloads the thumbnail of the file version that was online on the day of the edit
-     (with our descriptive User-Agent: Wikimedia refuses some servers that fetch by themselves);
-  2. uploads it to Cloudinary with its evidence as metadata (rev_id, article, captions, author,
-     license) and tags, so the media library itself is a searchable archive of the cases;
-  3. builds an "evidence card" URL: Cloudinary resizes the picture to a 1200x630 share image and
-     writes the old caption, the new caption, the date and the author/license credit on it.
+1. Archive (--archive, needs the API keys). For each published image case, this script:
+   - downloads the picture as it was on the day of the edit, and for a replaced picture the one
+     that was there before (with our descriptive User-Agent: Wikimedia refuses servers that
+     fetch by themselves, Cloudinary's fetch included);
+   - uploads them to Cloudinary with the evidence as metadata (rev_id, article, date, side,
+     caption, author, license) and tags, so the media library itself is a searchable archive;
+   - keeps the perceptual hash (pHash) Cloudinary computes, to recognise the same picture
+     under another file name.
 
-Writes data/exchange/cloudinary.jsonl (one line per case, written as soon as it is done;
-cases already there are skipped on a rerun).
+2. Before / after (--compare, needs the cloud name only: no file is sent). For each archived
+   image case, builds the two sides of a slider: the picture before and the picture after, at
+   the same size and framing, each with the caption Wikipedia showed at that time.
+
+Writes data/exchange/cloudinary.jsonl (one line per case and per step, written as soon as it
+is done; the server merges the lines of a case, the last value of each field wins).
 
 Usage (from the repository root):
-    python analysis/cloudinary_cards.py --rev-id 24139572        # one case
-    python analysis/cloudinary_cards.py --suspicious --limit 20  # image cases judged suspicious
+    python analysis/cloudinary_cards.py --archive                 # every published image case
+    python analysis/cloudinary_cards.py --compare                 # before / after pictures
+    python analysis/cloudinary_cards.py --archive --compare --rev-id 24139572   # one case
 .env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET (or CLOUDINARY_URL).
 With USE_MOCK=true nothing is sent: fake answers, written to cloudinary-mock.jsonl.
 """
 
 import argparse
+import glob
 import hashlib
 import json
 import os
@@ -33,12 +40,15 @@ import httpx
 
 from env import load_env, use_mock
 
-ANALYSIS = "data/exchange/analysis.jsonl"
+CANDIDATES = "data/exchange/candidates.jsonl"
+DECISIONS = "data/exchange/decisions.jsonl"
+IMAGES = "data/exchange/images.jsonl"
 DEMO = "analysis/demo_cases.json"
 OUT = "data/exchange/cloudinary.jsonl"
 FOLDER = "timeproof"
-CARD_W, CARD_H = 1200, 630          # size used by link previews (Open Graph)
-MAX_CAPTION = 140                   # characters per caption: about 5 lines in the right-hand column
+BACKGROUND = f"{FOLDER}/card_background"
+PRESET = "timeproof-evidence"          # upload preset: the settings every archived picture shares
+MAX_CAPTION = 140
 
 
 def credentials() -> dict:
@@ -51,8 +61,9 @@ def credentials() -> dict:
 
 
 def sign(params: dict, secret: str) -> str:
-    """Cloudinary signature: sorted 'key=value' pairs joined by '&', plus the secret, SHA-1."""
-    payload = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    """Cloudinary signature: sorted 'key=value' pairs joined by '&', plus the secret, SHA-1.
+    A '&' inside a value (a caption can have one) is signed as %26, so it is not read as a separator."""
+    payload = "&".join(f"{k}={str(params[k]).replace('&', '%26')}" for k in sorted(params))
     return hashlib.sha1((payload + secret).encode()).hexdigest()
 
 
@@ -66,18 +77,200 @@ def external_call(kind: str, **kw) -> dict | bytes:
     if use_mock():
         if kind == "download":
             return b"mock image bytes"
-        return {"public_id": kw["params"]["public_id"], "version": 1, "width": 800, "height": 600,
+        if kind == "check":
+            return {"status": 200, "content_type": "image/png", "error": ""}
+        if kind == "preset":
+            return {"message": "created", "name": kw["params"]["name"]}
+        return {"public_id": kw["params"]["public_id"], "version": 1, "width": 800, "height": 600, "phash": "0" * 16,
                 "secure_url": f"https://res.cloudinary.com/{kw['cloud']}/image/upload/v1/{kw['params']['public_id']}.jpg"}
     if kind == "download":
         r = httpx.get(kw["url"], headers={"User-Agent": os.environ.get("WIKI_USER_AGENT", "")},
                       follow_redirects=True, timeout=60)
         r.raise_for_status()
         return r.content
-    r = httpx.post(f"https://api.cloudinary.com/v1_1/{kw['cloud']}/image/upload",
-                   data=kw["params"], files={"file": ("image", kw["content"])}, timeout=120)
+    if kind == "check":      # ask Cloudinary for a delivery URL once: it builds (and caches) the result
+        r = httpx.get(kw["url"], timeout=180)
+        return {"status": r.status_code, "content_type": r.headers.get("content-type"),
+                "error": r.headers.get("x-cld-error", "")}
+    if kind == "preset":     # Admin API: create the preset, or update it when the name is taken (409)
+        url = f"https://api.cloudinary.com/v1_1/{kw['cloud']}/upload_presets"
+        r = httpx.post(url, data=kw["params"], auth=(kw["key"], kw["secret"]), timeout=60)
+        if r.status_code == 409:
+            settings = {k: v for k, v in kw["params"].items() if k != "name"}
+            r = httpx.put(f"{url}/{kw['params']['name']}", data=settings, auth=(kw["key"], kw["secret"]), timeout=60)
+        if r.status_code >= 400:
+            raise RuntimeError(f"Cloudinary preset refused: HTTP {r.status_code} {r.text[:200]}")
+        return r.json()
+    # The asset type is in the address: these are always pictures.
+    for attempt in range(4):
+        r = httpx.post(f"https://api.cloudinary.com/v1_1/{kw['cloud']}/image/upload",
+                       data=kw["params"], files={"file": ("image", kw["content"])}, timeout=120)
+        if r.status_code != 420 or "limit" not in r.text.lower():      # 420 = rate limited: wait and retry
+            break
+        time.sleep(5 * (attempt + 1))
     if r.status_code >= 400:
         raise RuntimeError(f"Cloudinary upload refused: HTTP {r.status_code} {r.text[:200]}")
     return r.json()
+
+
+def read_jsonl(path: str) -> list[dict]:
+    if not Path(path).exists():
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def merged(path: str) -> dict[int, dict]:
+    """{rev_id: every field written so far for that case} (the last value of each field wins)."""
+    out: dict[int, dict] = {}
+    for row in read_jsonl(path):
+        out.setdefault(row["rev_id"], {}).update({k: v for k, v in row.items() if v is not None})
+    return out
+
+
+def published_cases() -> tuple[dict, dict]:
+    """({rev_id: candidate}, {rev_id: decision}) for public cases only: never a synthetic one."""
+    decisions = {d["rev_id"]: d for d in read_jsonl(DECISIONS)
+                 if d.get("decision") == "flag" and d.get("publish") and not d.get("synthetic")}
+    cases = {c["rev_id"]: c for c in read_jsonl(CANDIDATES) if c["rev_id"] in decisions and not c.get("synthetic")}
+    return cases, {rev: decisions[rev] for rev in cases}
+
+
+# ---------- 1. Archive: the pictures, kept with their evidence ----------
+
+def one_pixel_png(rgb: tuple[int, int, int]) -> bytes:
+    """A 1x1 PNG of one colour (standard library only): Cloudinary scales it into the slider background."""
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    raw = b"\x00" + bytes(rgb)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def ensure_preset(cred: dict) -> None:
+    """One upload preset holds what every archived picture shares, so it can be changed in the
+    Cloudinary console without touching this script."""
+    external_call("preset", cloud=cred["cloud"], key=cred["key"], secret=cred["secret"], params={
+        "name": PRESET, "unsigned": "false",
+        "asset_folder": FOLDER,            # where it shows in the Media Library (the public id alone does not place it)
+        "allowed_formats": "jpg,png,gif,webp,tiff,svg",
+        "overwrite": "true", "invalidate": "true",   # a rerun replaces the picture and refreshes cached copies
+        "unique_filename": "false", "use_filename": "false",
+        "phash": "true",                   # perceptual hash: the same picture under another name gets the same value
+        "tags": "timeproof"})
+
+
+def upload(cred: dict, content: bytes, public_id: str, tags: list[str], context: dict) -> dict:
+    """Signed upload: only what changes per picture is in the request, the rest is in the preset."""
+    params = {
+        "upload_preset": PRESET,
+        "public_id": public_id,
+        "timestamp": str(int(time.time())),
+        "tags": ",".join(tags),
+        "context": "|".join(f"{k}={context_value(v)}" for k, v in context.items() if v not in (None, "")),
+    }
+    signed = {**params, "api_key": cred["key"], "signature": sign(params, cred["secret"])}
+    return external_call("upload", cloud=cred["cloud"], params=signed, content=content)
+
+
+def version_at(info: dict, timestamp: str) -> dict | None:
+    """The file version that was online at `timestamp` (ISO dates compare as text)."""
+    for v in sorted(info.get("versions", []), key=lambda v: v["timestamp"], reverse=True):
+        if v["timestamp"] <= timestamp:
+            return v
+    return None
+
+
+def previous_files(cases: list[dict], parquet: list[str]) -> dict[int, dict]:
+    """{rev_id: {"file": picture the new one took the place of, "moved": still in the article}},
+    read from the two versions themselves, with the same pairing rule as find_candidates.py
+    (files gone and files that came, in alphabetical order). "moved" matters: a picture pushed
+    down into a gallery was not removed, and we must not say it was."""
+    from find_candidates import images as wikitext_images, iter_versions   # needs pyarrow: only here
+
+    wanted = {c["rev_id"]: c["image"]["file"] for c in cases}
+    last_text, out = {}, {}
+    for row in iter_versions(parquet, sorted({c["page_id"] for c in cases})):
+        page = row["page_id"]
+        if row["rev_id"] in wanted and page in last_text:
+            old, new = wikitext_images(last_text[page] or ""), wikitext_images(row["text"] or "")
+            gone, came = sorted(old.keys() - new.keys()), sorted(new.keys() - old.keys())
+            file = wanted[row["rev_id"]]
+            if file in came and came.index(file) < len(gone):
+                old_file = gone[came.index(file)]
+                text = (row["text"] or "").replace("_", " ").lower()
+                out[row["rev_id"]] = {"file": old_file, "moved": old_file.replace("_", " ").lower() in text}
+        last_text[page] = row["text"]
+    return out
+
+
+def archive(cred: dict, out_path: str, only: list[int] | None, parquet: list[str]) -> None:
+    cases, _ = published_cases()
+    chosen = [c for c in cases.values()
+              if c["kind"] == "image" and (c.get("image") or {}).get("thumb_url") and (not only or c["rev_id"] in only)]
+    info = {r["file"]: r for r in read_jsonl(IMAGES)}
+    replaced = [c for c in chosen if c["image"]["change"] == "replaced"]
+    before_file = previous_files(replaced, parquet) if replaced and parquet else {}
+    print(f"archiving {len(chosen)} published image case(s), {len(before_file)} with the picture before" + (" (MOCK)" if use_mock() else ""))
+    ensure_preset(cred)
+    upload(cred, one_pixel_png((17, 24, 39)), BACKGROUND, ["timeproof", "background"], {"use": "slider background"})
+
+    def keep(case: dict, side: str, file: str, url: str, caption: str | None, author: str, license_: str, version: str | None) -> dict:
+        public_id = f"{FOLDER}/rev_{case['rev_id']}" + ("_before" if side == "before" else "")
+        up = upload(cred, external_call("download", url=url), public_id,
+                    ["timeproof", "evidence", side, case["image"]["change"]],
+                    {"rev_id": case["rev_id"], "article": case["title"], "edited": case["timestamp"], "side": side,
+                     "file": file, "file_version": version, "caption": caption, "author": author, "license": license_,
+                     "source": f"https://fi.wikipedia.org/w/index.php?diff=prev&oldid={case['rev_id']}"})
+        time.sleep(0.5)
+        return {"public_id": up["public_id"], "archived_url": up["secure_url"], "phash": up.get("phash")}
+
+    with open(out_path, "a", encoding="utf-8") as out:
+        for case in chosen:
+            img, rev = case["image"], case["rev_id"]
+            # No credit, no picture: Wikimedia images may only be shown with author and license.
+            if not (img.get("author") and img.get("license")):
+                print(f"  rev {rev}: author or license unknown, not archived")
+                continue
+            try:
+                after = keep(case, "after", img["file"], img["thumb_url"], img.get("caption_new"),
+                             img["author"], img["license"], img.get("version_timestamp"))
+                line = {"rev_id": rev, "kind": "image", "change": img["change"], "file": img["file"], **after,
+                        "image_auto_url": f"https://res.cloudinary.com/{cred['cloud']}/image/upload/c_limit,w_800/f_auto/q_auto/{after['public_id']}",
+                        "original_url": (info.get(img["file"]) or {}).get("description_url")
+                                        or "https://commons.wikimedia.org/wiki/File:" + quote(img["file"].replace(" ", "_")),
+                        "author": img["author"], "license": img["license"], "version_timestamp": img.get("version_timestamp")}
+                found = before_file.get(rev) or {}
+                old = info.get(found.get("file", ""))
+                version = version_at(old, case["timestamp"]) if old else None
+                if old and version and version.get("thumb_url") and old.get("author") and old.get("license"):
+                    before = keep(case, "before", old["file"], version["thumb_url"], img.get("caption_old"),
+                                  old["author"], old["license"], version["timestamp"])
+                    line.update({"before_file": old["file"], "before_moved": found["moved"], "before_public_id": before["public_id"],
+                                 "before_archived_url": before["archived_url"], "before_phash": before["phash"],
+                                 "before_original_url": old.get("description_url"),
+                                 "before_author": old["author"], "before_license": old["license"]})
+                elif rev in before_file:
+                    # Named, but not shown: without an author on record we may not display it.
+                    line.update({"before_file": found["file"], "before_moved": found["moved"]})
+                    print(f"  rev {rev}: picture before ({found['file']}) has no dated version or no credit, kept out")
+            except (httpx.HTTPError, RuntimeError, KeyError) as e:
+                print(f"  rev {rev}: failed: {e}")
+                continue
+            out.write(json.dumps(line, ensure_ascii=False) + "\n")
+            out.flush()
+            print(f"  rev {rev} {case['title']}: {img['change']}, phash {line['phash']}"
+                  + (f", before {line['before_file']} phash {line['before_phash']}" if line.get("before_public_id") else "")
+                  + (" (moved inside the article, not removed)" if line.get("before_moved") else ""))
+
+
+# ---------- 2. Before / after pictures, composed by Cloudinary ----------
+# No file is sent here: each side is the archived picture on a fixed canvas, with the caption
+# Wikipedia showed under it at that time, written on it by Cloudinary as text layers.
+
+MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+RED, GREEN, WHITE, DIM = "FCA5A5", "86EFAC", "FFFFFF", "94A3B8"
+TEXT_CREDIT = "Text: Finnish Wikipedia, CC BY-SA 4.0"
 
 
 def text_layer(text: str) -> str:
@@ -97,248 +290,110 @@ def layer(text: str, font: str, color: str, width: int, x: int, y: int, gravity:
             f"fl_layer_apply,g_{gravity},x_{x},y_{y}"]
 
 
-def blocks(header: str, before: str, before_en: str | None, after: str, after_en: str | None,
-           footer: str, x: int, w: int, roomy: bool) -> list[str]:
-    """Title, header, before (red) and after (green) with optional English lines, footer.
-    Each block has a fixed height so a long text can never run over the next one."""
-    y_after = 300 if roomy else 330
-    steps = layer("TimeProof", "Arial_34_bold", "FFFFFF", w, x, 28)
-    steps += layer(header, "Arial_20", "CBD5E1", w, x, 78)
-    steps += layer(before, "Arial_26_bold", "FCA5A5", w, x, 130)
-    if before_en:
-        steps += layer(before_en, "Arial_19_italic", "FECACA", w, x, 225 if roomy else 235)
-    steps += layer(after, "Arial_26_bold", "86EFAC", w, x, y_after)
-    if after_en:
-        steps += layer(after_en, "Arial_19_italic", "BBF7D0", w, x, y_after + (95 if roomy else 105))
-    steps += layer(footer, "Arial_16", "94A3B8", w, x, 22, "south_west")
-    return steps
+def day_text(value: str | None) -> str:
+    """'2019-09-27T21:53Z' -> '27 Sep 2019'."""
+    if not value:
+        return ""
+    y, m, d = str(value)[:10].split("-")
+    return f"{int(d)} {MONTHS[int(m) - 1]} {y}"
 
 
-def card_url(cloud: str, public_id: str, case: dict, demo: dict | None = None) -> str:
-    """Evidence card: the picture of the day on the left (never covered: it is the evidence),
-    old and new caption on the right, date and author/license credit written on it."""
-    img = case["image"]
-    before = f"BEFORE: {shorten((demo or {}).get('before_fi') or img.get('caption_old')) or '(no caption)'}"
-    after = (f"AFTER ({case['timestamp'][:10]}): "
-             f"{shorten((demo or {}).get('after_fi') or img.get('caption_new')) or '(no caption)'}")
-    online = f" · {demo['online']}" if demo else ""
-    footer = shorten(f"Finnish Wikipedia rev {case['rev_id']}{online} · "
-                     f"Image: {img.get('author') or 'unknown author'}, {img.get('license') or 'license unknown'}", 200)
-    header = f"{case['title']} · Finnish Wikipedia · edited {case['timestamp'][:10]}"
-    half = CARD_W // 2
-    steps = [f"c_pad,w_{half},h_{CARD_H},b_rgb:111827", f"c_pad,w_{CARD_W},h_{CARD_H},g_west,b_rgb:111827"]
-    steps += blocks(header, before, (demo or {}).get("before_en"), after, (demo or {}).get("after_en"),
-                    footer, half + 30, half - 60, roomy=False)
-    steps.append("f_auto,q_auto")
-    return f"https://res.cloudinary.com/{cloud}/image/upload/{'/'.join(steps)}/{public_id}"
+def image_credit(author: str | None, license_: str | None, room: int = 160) -> str:
+    # The whole author credit must stay readable (the licence requires it); it may wrap on two lines.
+    return f"{shorten(author or 'unknown author', room)}, {license_ or 'license unknown'}"
 
 
-def text_card_url(cloud: str, background_id: str, demo: dict) -> str:
-    """Evidence card for a text edit: the exact Finnish passage before and after, with English."""
-    before = f"BEFORE: {shorten(demo['before_fi'], 230)}"
-    after = (f"AFTER ({demo['date']}): {shorten(demo['after_fi'], 230)}" if demo.get("after_fi")
-             else f"AFTER ({demo['date']}): passage deleted")
-    header = f"{demo['title']} · Finnish Wikipedia · edited {demo['date']} · signal: {demo['kind']}"
-    footer = f"Finnish Wikipedia rev {demo['rev_id']} · {demo['online']} · Text: CC BY-SA 4.0"
-    steps = [f"c_scale,w_{CARD_W},h_{CARD_H}"]
-    steps += blocks(header, before, demo.get("before_en"), after, demo.get("after_en"), footer, 40, CARD_W - 80,
-                    roomy=True)
-    steps.append("f_auto,q_auto")
-    return f"https://res.cloudinary.com/{cloud}/image/upload/{'/'.join(steps)}/{background_id}"
+def compare_url(cloud: str, picture_id: str, caption: str, label: str, color: str, credit: str) -> str:
+    """One side of the before/after slider: a picture at a fixed size and framing, with the
+    caption Wikipedia showed under it at that time."""
+    steps = ["c_scale,w_1200,h_800",      # the background is one pixel: stretching it is the point
+             f"l_{picture_id.replace('/', ':')}", "c_fit,w_1100,h_520", "fl_layer_apply,g_north,y_30"]
+    steps += layer(label, "Arial_24_bold", color, 1100, 50, 578)
+    steps += layer(shorten(caption, 200), "Arial_30_bold", WHITE, 1100, 50, 616)
+    steps += layer(f"Image: {credit} · {TEXT_CREDIT}", "Arial_16", DIM, 1100, 50, 16, "south_west")
+    steps += ["f_auto", "q_auto"]
+    return f"https://res.cloudinary.com/{cloud}/image/upload/{'/'.join(steps)}/{BACKGROUND}"
 
 
-SIGNAL_NAMES = {"image": "image / caption", "framing": "framing drift", "sources": "sources removed"}
-
-
-def online_text(exposure: dict) -> str:
-    """'Online 2 h 35 min, then undone' / 'Still online after 5,862 days', as on the site."""
-    days = exposure.get("days_live")
-    if not isinstance(days, (int, float)):
-        span = "an unknown time"
-    else:
-        minutes = round(days * 1440)
-        if minutes < 60:
-            span = f"{max(1, minutes)} min"
-        elif days < 1:
-            span = f"{minutes // 60} h" + (f" {minutes % 60} min" if minutes % 60 else "")
-        else:
-            span = f"{round(days):,} day" + ("" if round(days) == 1 else "s")
-    return f"Still online after {span}" if exposure.get("still_online") else f"Online {span}, then undone"
-
-
-def readable(text: str | None) -> str:
-    """Fragments are raw wikitext: drop headings marks, link brackets, bold and templates."""
-    import re
-    text = str(text or "")
-    text = re.sub(r"<ref[^>]*>.*?</ref>|<ref[^>]*/>|\{\{[^{}]*\}\}|<[^>]+>", " ", text, flags=re.S)
-    text = re.sub(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]", r"\1", text)
-    text = re.sub(r"\[https?://\S+\s*([^\]]*)\]", r"\1", text)
-    text = re.sub(r"={2,}\s*([^=]+?)\s*={2,}", r"\1:", text).replace("'''", "").replace("''", "")
-    return " ".join(text.split())
-
-
-def case_text_card_url(cloud: str, background_id: str, case: dict, decision: dict) -> str:
-    """Evidence card for any published case, from its own fragments (no upload: the background
-    is already in the account). Only Finnish text from Wikipedia: no English line is invented."""
-    img = case.get("image") or {}
-    date = str(case["timestamp"])[:10]
-    if case["kind"] == "image" and (img.get("caption_old") or img.get("caption_new")):
-        before, after = img.get("caption_old"), img.get("caption_new")
-        what_before, what_after = "CAPTION BEFORE", f"CAPTION AFTER ({date})"
-    else:
-        before, after = readable(case.get("removed")), readable(case.get("added"))
-        what_before, what_after = "BEFORE", f"AFTER ({date})"
-    before = f"{what_before}: {shorten(before, 230)}" if before else f"{what_before}: (nothing removed)"
-    after = f"{what_after}: {shorten(after, 230)}" if after else f"{what_after}: passage deleted"
-    signal = decision.get("signal_type") or case["kind"]
-    header = f"{case['title']} · Finnish Wikipedia · edited {date} · signal: {SIGNAL_NAMES.get(signal, signal)}"
-    footer = f"Finnish Wikipedia rev {case['rev_id']} · {online_text(decision.get('exposure') or {})} · Text: CC BY-SA 4.0"
-    steps = [f"c_scale,w_{CARD_W},h_{CARD_H}"]
-    steps += blocks(header, before, None, after, None, footer, 40, CARD_W - 80, roomy=True)
-    steps.append("f_auto,q_auto")
-    return f"https://res.cloudinary.com/{cloud}/image/upload/{'/'.join(steps)}/{background_id}"
-
-
-def make_published_text_cards(cloud: str, out_path: str, done: set) -> None:
-    """A text card for every published case that has none yet (no API key needed)."""
-    decisions = {int(d["rev_id"]): d for d in read_jsonl("data/exchange/decisions.jsonl")
-                 if d.get("decision") == "flag" and d.get("publish")}
-    cases = [c for c in read_jsonl("data/exchange/candidates.jsonl")
-             if int(c["rev_id"]) in decisions and not c.get("synthetic") and int(c["rev_id"]) not in done]
-    background_id = f"{FOLDER}/card_background"
-    print(f"{len(done)} already in {out_path}; making {len(cases)} text cards on cloud {cloud}")
-    with open(out_path, "a", encoding="utf-8") as out:
-        for case in cases:
-            line = {"rev_id": int(case["rev_id"]), "public_id": background_id, "image_url": None, "image_auto_url": None,
-                    "evidence_card_url": case_text_card_url(cloud, background_id, case, decisions[int(case["rev_id"])]),
-                    "card_size": [CARD_W, CARD_H], "author": None, "license": "CC BY-SA 4.0 (text)", "demo": False}
-            out.write(json.dumps(line, ensure_ascii=False) + "\n")
-
-
-def one_pixel_png(rgb: tuple[int, int, int]) -> bytes:
-    """A 1x1 PNG of one colour (standard library only): Cloudinary scales it into the card background."""
-    def chunk(kind: bytes, data: bytes) -> bytes:
-        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-    raw = b"\x00" + bytes(rgb)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
-
-
-def upload(cred: dict, content: bytes, public_id: str, tags: list[str], context: dict) -> dict:
-    params = {
-        "public_id": public_id,
-        "overwrite": "true",
-        "timestamp": str(int(time.time())),
-        "tags": ",".join(tags),
-        "context": "|".join(f"{k}={context_value(v)}" for k, v in context.items()),
-    }
-    signed = {**params, "api_key": cred["key"], "signature": sign(params, cred["secret"])}
-    return external_call("upload", cloud=cred["cloud"], params=signed, content=content)
-
-
-def process(case: dict, cred: dict, demo: dict | None = None) -> dict:
-    img = case["image"]
-    content = external_call("download", url=img["thumb_url"])
-    up = upload(cred, content, f"{FOLDER}/rev_{case['rev_id']}", ["timeproof", case["kind"], img["change"]], {
-        "rev_id": case["rev_id"], "article": case["title"], "edited": case["timestamp"],
-        "file": img["file"], "caption_old": img.get("caption_old"), "caption_new": img.get("caption_new"),
-        "author": img.get("author"), "license": img.get("license"),
-        "source": f"https://fi.wikipedia.org/w/index.php?diff=prev&oldid={case['rev_id']}"})
-    return {"rev_id": case["rev_id"], "public_id": up["public_id"], "version": up.get("version"),
-            "image_url": up["secure_url"],
-            "image_auto_url": f"https://res.cloudinary.com/{cred['cloud']}/image/upload/f_auto,q_auto,w_800/{up['public_id']}",
-            "evidence_card_url": card_url(cred["cloud"], up["public_id"], case, demo),
-            "card_size": [CARD_W, CARD_H], "author": img.get("author"), "license": img.get("license"),
-            "demo": bool(demo)}
-
-
-def process_text_demo(demo: dict, cred: dict, background_id: str) -> dict:
-    return {"rev_id": demo["rev_id"], "public_id": background_id, "image_url": None, "image_auto_url": None,
-            "evidence_card_url": text_card_url(cred["cloud"], background_id, demo),
-            "card_size": [CARD_W, CARD_H], "author": None, "license": "CC BY-SA 4.0 (text)", "demo": True}
-
-
-def read_jsonl(path: str) -> list[dict]:
-    if not Path(path).exists():
-        return []
-    with open(path, encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-def make_demo_cards(cred: dict, out_path: str, done: set) -> None:
-    """Cards for the hand-verified demo cases: picture cards for image cases, text cards otherwise."""
+def make_comparisons(cloud: str, out_path: str, only: list[int] | None) -> None:
+    """The two sides of the before/after slider for every archived image case that has both:
+    two different pictures when the edit replaced one, the same picture twice when only the
+    words under it changed. Hand-made English translations are added for the demo cases."""
     with open(DEMO, encoding="utf-8") as f:
-        demos = json.load(f)["cases"]
-    analysed = {r["rev_id"]: r for r in read_jsonl(ANALYSIS)}
-    background_id = f"{FOLDER}/card_background"
-    upload(cred, one_pixel_png((17, 24, 39)), background_id, ["timeproof", "background"], {"use": "card background"})
+        demos = {d["rev_id"]: d for d in json.load(f)["cases"]}
+    cases, _ = published_cases()
+    kept = merged(out_path)
+    targets = [rev for rev, r in kept.items()
+               if rev in cases and r.get("public_id") and r.get("archived_url") and (not only or rev in only)]
+    print(f"{len(targets)} archived image case(s) on cloud {cloud}" + (" (MOCK)" if use_mock() else ""))
     with open(out_path, "a", encoding="utf-8") as out:
-        for demo in demos:
-            if demo["rev_id"] in done:
+        for rev in targets:
+            case, keep, demo = cases[rev], kept[rev], demos.get(rev) or {}
+            img = case.get("image") or {}
+            replaced = img.get("change") == "replaced"
+            before_id = keep.get("before_public_id") if replaced else keep["public_id"]
+            if not before_id:
+                print(f"  rev {rev} {case['title']}: no picture before in the archive, no slider")
                 continue
-            case = analysed.get(demo["rev_id"])
-            if demo["kind"] == "image" and case and (case.get("image") or {}).get("thumb_url"):
-                line = process(case, cred, demo)
-            else:
-                line = process_text_demo(demo, cred, background_id)
+            before = demo.get("before_fi") or img.get("caption_old")
+            after = demo.get("after_fi") or img.get("caption_new")
+            credit_after = image_credit(img.get("author"), img.get("license"))
+            credit_before = image_credit(keep.get("before_author"), keep.get("before_license")) if replaced else credit_after
+            edited = day_text(str(case["timestamp"])[:10])
+            what = "PICTURE" if replaced else "CAPTION"
+            said = lambda text, file: text or f"(no caption) File: {file}"
+            line = {"rev_id": rev, "kind": "image", "compare": img.get("change"),
+                    "before_url": compare_url(cloud, before_id, said(before, keep.get("before_file") if replaced else img.get("file")),
+                                              f"{what} BEFORE · until {edited}", RED, credit_before),
+                    "after_url": compare_url(cloud, keep["public_id"], said(after, img.get("file")),
+                                             f"{what} AFTER · edit of {edited}", GREEN, credit_after),
+                    "before_caption": before, "after_caption": after,
+                    "before_caption_en": demo.get("before_en"), "after_caption_en": demo.get("after_en"),
+                    "archived_url": keep["archived_url"], "author": img.get("author"), "license": img.get("license")}
+            # Cloudinary builds a picture on the first request: ask for both now, so a wrong layer
+            # is caught here and the first visitor does not wait.
+            failed = None
+            for key in ("before_url", "after_url"):
+                answer = external_call("check", url=line[key])
+                if answer["status"] != 200 or not str(answer.get("content_type", "")).startswith("image/"):
+                    failed = f"{key}: HTTP {answer['status']} {answer.get('content_type')} {answer.get('error', '')}"
+                    break
+            if failed:
+                print(f"  rev {rev} {case['title']}: NOT written, {failed[:200]}")
+                continue
             out.write(json.dumps(line, ensure_ascii=False) + "\n")
             out.flush()
-            print(f"  rev {demo['rev_id']} {demo['title']}: {line['evidence_card_url'][:100]}…")
+            print(f"  rev {rev} {case['title']}: slider ({'two pictures' if replaced else 'same picture, two captions'}), checked")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--rev-id", type=int, action="append", help="these cases")
-    parser.add_argument("--suspicious", action="store_true", help="image cases judged suspicious by Nemotron")
-    parser.add_argument("--demo", action="store_true", help="the hand-verified demo cases of analysis/demo_cases.json")
-    parser.add_argument("--published-text", action="store_true",
-                        help="a text card for every published case, built on the background already uploaded (no key needed)")
-    parser.add_argument("--cloud", help="cloud name for --published-text (default: CLOUDINARY_CLOUD_NAME)")
-    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--archive", action="store_true", help="upload the pictures of the published image cases (needs the keys)")
+    parser.add_argument("--compare", action="store_true", help="the two sides of the before/after slider (needs the cloud name only)")
+    parser.add_argument("--rev-id", type=int, action="append", help="only these cases")
+    parser.add_argument("--cloud", help="cloud name for --compare (default: CLOUDINARY_CLOUD_NAME)")
+    parser.add_argument("--parquet", nargs="*", default=sorted(glob.glob("data/versions-*.parquet")),
+                        help="history files, to find the picture a replaced one took the place of")
     parser.add_argument("--out", default=OUT)
     args = parser.parse_args()
     load_env()
-
-    if args.published_text:
-        # Builds URLs only: nothing is sent, so USE_MOCK changes nothing here.
-        cloud = args.cloud or credentials()["cloud"]
-        if not cloud:
-            sys.exit("Give --cloud or CLOUDINARY_CLOUD_NAME in .env.")
-        make_published_text_cards(cloud, args.out, {r["rev_id"] for r in read_jsonl(args.out)})
-        return
-
-    cred = credentials()
+    if not (args.archive or args.compare):
+        parser.error("choose --archive, --compare or both")
     if use_mock():
         args.out = args.out.replace(".jsonl", "-mock.jsonl")
-        cred = {"cloud": cred["cloud"] or "mock-cloud", "key": "mock", "secret": "mock"}
-    elif not all(cred.values()):
-        sys.exit("Missing in .env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET (or CLOUDINARY_URL).")
 
-    done = {r["rev_id"] for r in read_jsonl(args.out)}
-    if args.demo:
-        make_demo_cards(cred, args.out, done)
-        return
-    # A text card (from --published-text) does not count: the image case still needs its picture
-    # card. The new line is appended, and the server keeps the last line of each rev_id.
-    with_picture = {r["rev_id"] for r in read_jsonl(args.out) if r.get("image_url")}
-    cases = [r for r in read_jsonl(ANALYSIS)
-             if not r.get("synthetic") and r["kind"] == "image" and (r.get("image") or {}).get("thumb_url")
-             and r["rev_id"] not in with_picture
-             and ((args.rev_id and r["rev_id"] in args.rev_id)
-                  or (args.suspicious and r["nemotron"]["suspicious"]))]
-    cases = cases[:args.limit]
-    print(f"{len(done)} already in {args.out}; making {len(cases)} cards" + (" (MOCK)" if use_mock() else ""))
-    with open(args.out, "a", encoding="utf-8") as out:
-        for case in cases:
-            try:
-                line = process(case, cred)
-            except (httpx.HTTPError, RuntimeError, KeyError) as e:
-                print(f"  rev {case['rev_id']}: failed: {e}")
-                continue
-            out.write(json.dumps(line, ensure_ascii=False) + "\n")
-            out.flush()
-            print(f"  rev {case['rev_id']} {case['title']}: {line['evidence_card_url'][:110]}…")
-            time.sleep(0.5)
+    cred = credentials()
+    if args.archive:
+        if use_mock():
+            cred = {"cloud": cred["cloud"] or "mock-cloud", "key": "mock", "secret": "mock"}
+        elif not all(cred.values()):
+            sys.exit("Missing in .env: CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET (or CLOUDINARY_URL).")
+        archive(cred, args.out, args.rev_id, args.parquet)
+    if args.compare:
+        cloud = args.cloud or cred["cloud"] or ("mock-cloud" if use_mock() else "")
+        if not cloud:
+            sys.exit("Give --cloud or CLOUDINARY_CLOUD_NAME in .env.")
+        make_comparisons(cloud, args.out, args.rev_id)
 
 
 if __name__ == "__main__":
