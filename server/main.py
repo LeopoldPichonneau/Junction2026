@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from db import connect
+from live import router as live_router
 from wikitext import clean
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/data"))
@@ -25,6 +26,7 @@ WEB_DIR = Path(__file__).parent / "web"
 DEMO_CASES = Path(os.environ.get("DEMO_CASES", "/analysis/demo_cases.json"))
 
 app = FastAPI(title="TimeProof API")
+app.include_router(live_router)      # live watcher: POST /api/internal/watch, GET /api/live
 
 # Only cases both models agreed on, that the decider chose to publish, and never the test campaign.
 PUBLIC = "d.decision = 'flag' AND d.publish = 1 AND c.synthetic = 0"
@@ -200,6 +202,8 @@ def case_summary(row: dict) -> dict:
             "readers_est": row["readers_est"],
             "still_online": None if row["still_online"] is None else bool(row["still_online"]),
             "verified": bool(exp.get("verified")),
+            # "live" = found by the watcher after the dataset's end, with the time it was detected.
+            "source": c.get("source") or "dataset", "detected_at": c.get("detected_at"),
             "image_thumb": shown_thumb(image),
             # The list shows a thumbnail only with its credit: send it along, never one without the other.
             "image_author": image.get("author") if shown_thumb(image) else None,

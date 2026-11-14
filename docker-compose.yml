@@ -43,6 +43,9 @@ services:
       - ./data:/data
       # Hand-made English translations of the demo cases, shown next to the Finnish diff.
       - ./analysis/demo_cases.json:/analysis/demo_cases.json:ro
+      # The live watcher (server/watch.py) runs the team's own scripts, unchanged.
+      - ./analysis:/repo/analysis:ro
+      - ./decision:/repo/decision:ro
     command: uvicorn main:app --host 0.0.0.0 --port 8000
 
 volumes:

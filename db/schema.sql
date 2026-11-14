@@ -66,3 +66,23 @@ CREATE TABLE IF NOT EXISTS article_timeline (
   edits INT UNSIGNED NOT NULL, reverts INT UNSIGNED NOT NULL,
   PRIMARY KEY (page_id, month)
 ) CHARACTER SET utf8mb4;
+
+-- Live watcher (server/watch.py): where it stopped reading Wikipedia's RecentChanges and what
+-- it counted. Versioned: FOR SYSTEM_TIME ALL lists every check. The watcher also creates it
+-- itself, because this file only runs on an empty base.
+CREATE TABLE IF NOT EXISTS watch_state (
+  id TINYINT UNSIGNED PRIMARY KEY,
+  rc_timestamp DATETIME NOT NULL, rc_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+  last_check DATETIME(6) NOT NULL, last_ok BOOL NOT NULL DEFAULT 1,
+  data JSON NOT NULL
+) CHARACTER SET utf8mb4 WITH SYSTEM VERSIONING;
+
+-- Human review of the cases the two models disagree on (server/live.py). Versioned: a verdict
+-- and every later change of it stay in history (who, when, why), so our own calls are auditable.
+CREATE TABLE IF NOT EXISTS human_decision (
+  rev_id INT UNSIGNED PRIMARY KEY,
+  verdict ENUM('pending','approve','reject') NOT NULL DEFAULT 'pending',
+  reviewer VARCHAR(100), reason TEXT,
+  posted_at DATETIME NOT NULL, decided_at DATETIME,
+  data JSON NOT NULL
+) CHARACTER SET utf8mb4 WITH SYSTEM VERSIONING;
