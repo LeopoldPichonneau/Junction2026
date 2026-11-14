@@ -147,6 +147,74 @@ def text_card_url(cloud: str, background_id: str, demo: dict) -> str:
     return f"https://res.cloudinary.com/{cloud}/image/upload/{'/'.join(steps)}/{background_id}"
 
 
+SIGNAL_NAMES = {"image": "image / caption", "framing": "framing drift", "sources": "sources removed"}
+
+
+def online_text(exposure: dict) -> str:
+    """'Online 2 h 35 min, then undone' / 'Still online after 5,862 days', as on the site."""
+    days = exposure.get("days_live")
+    if not isinstance(days, (int, float)):
+        span = "an unknown time"
+    else:
+        minutes = round(days * 1440)
+        if minutes < 60:
+            span = f"{max(1, minutes)} min"
+        elif days < 1:
+            span = f"{minutes // 60} h" + (f" {minutes % 60} min" if minutes % 60 else "")
+        else:
+            span = f"{round(days):,} day" + ("" if round(days) == 1 else "s")
+    return f"Still online after {span}" if exposure.get("still_online") else f"Online {span}, then undone"
+
+
+def readable(text: str | None) -> str:
+    """Fragments are raw wikitext: drop headings marks, link brackets, bold and templates."""
+    import re
+    text = str(text or "")
+    text = re.sub(r"<ref[^>]*>.*?</ref>|<ref[^>]*/>|\{\{[^{}]*\}\}|<[^>]+>", " ", text, flags=re.S)
+    text = re.sub(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]", r"\1", text)
+    text = re.sub(r"\[https?://\S+\s*([^\]]*)\]", r"\1", text)
+    text = re.sub(r"={2,}\s*([^=]+?)\s*={2,}", r"\1:", text).replace("'''", "").replace("''", "")
+    return " ".join(text.split())
+
+
+def case_text_card_url(cloud: str, background_id: str, case: dict, decision: dict) -> str:
+    """Evidence card for any published case, from its own fragments (no upload: the background
+    is already in the account). Only Finnish text from Wikipedia: no English line is invented."""
+    img = case.get("image") or {}
+    date = str(case["timestamp"])[:10]
+    if case["kind"] == "image" and (img.get("caption_old") or img.get("caption_new")):
+        before, after = img.get("caption_old"), img.get("caption_new")
+        what_before, what_after = "CAPTION BEFORE", f"CAPTION AFTER ({date})"
+    else:
+        before, after = readable(case.get("removed")), readable(case.get("added"))
+        what_before, what_after = "BEFORE", f"AFTER ({date})"
+    before = f"{what_before}: {shorten(before, 230)}" if before else f"{what_before}: (nothing removed)"
+    after = f"{what_after}: {shorten(after, 230)}" if after else f"{what_after}: passage deleted"
+    signal = decision.get("signal_type") or case["kind"]
+    header = f"{case['title']} · Finnish Wikipedia · edited {date} · signal: {SIGNAL_NAMES.get(signal, signal)}"
+    footer = f"Finnish Wikipedia rev {case['rev_id']} · {online_text(decision.get('exposure') or {})} · Text: CC BY-SA 4.0"
+    steps = [f"c_scale,w_{CARD_W},h_{CARD_H}"]
+    steps += blocks(header, before, None, after, None, footer, 40, CARD_W - 80, roomy=True)
+    steps.append("f_auto,q_auto")
+    return f"https://res.cloudinary.com/{cloud}/image/upload/{'/'.join(steps)}/{background_id}"
+
+
+def make_published_text_cards(cloud: str, out_path: str, done: set) -> None:
+    """A text card for every published case that has none yet (no API key needed)."""
+    decisions = {int(d["rev_id"]): d for d in read_jsonl("data/exchange/decisions.jsonl")
+                 if d.get("decision") == "flag" and d.get("publish")}
+    cases = [c for c in read_jsonl("data/exchange/candidates.jsonl")
+             if int(c["rev_id"]) in decisions and not c.get("synthetic") and int(c["rev_id"]) not in done]
+    background_id = f"{FOLDER}/card_background"
+    print(f"{len(done)} already in {out_path}; making {len(cases)} text cards on cloud {cloud}")
+    with open(out_path, "a", encoding="utf-8") as out:
+        for case in cases:
+            line = {"rev_id": int(case["rev_id"]), "public_id": background_id, "image_url": None, "image_auto_url": None,
+                    "evidence_card_url": case_text_card_url(cloud, background_id, case, decisions[int(case["rev_id"])]),
+                    "card_size": [CARD_W, CARD_H], "author": None, "license": "CC BY-SA 4.0 (text)", "demo": False}
+            out.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
 def one_pixel_png(rgb: tuple[int, int, int]) -> bytes:
     """A 1x1 PNG of one colour (standard library only): Cloudinary scales it into the card background."""
     def chunk(kind: bytes, data: bytes) -> bytes:
@@ -223,10 +291,21 @@ def main() -> None:
     parser.add_argument("--rev-id", type=int, action="append", help="these cases")
     parser.add_argument("--suspicious", action="store_true", help="image cases judged suspicious by Nemotron")
     parser.add_argument("--demo", action="store_true", help="the hand-verified demo cases of analysis/demo_cases.json")
+    parser.add_argument("--published-text", action="store_true",
+                        help="a text card for every published case, built on the background already uploaded (no key needed)")
+    parser.add_argument("--cloud", help="cloud name for --published-text (default: CLOUDINARY_CLOUD_NAME)")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--out", default=OUT)
     args = parser.parse_args()
     load_env()
+
+    if args.published_text:
+        # Builds URLs only: nothing is sent, so USE_MOCK changes nothing here.
+        cloud = args.cloud or credentials()["cloud"]
+        if not cloud:
+            sys.exit("Give --cloud or CLOUDINARY_CLOUD_NAME in .env.")
+        make_published_text_cards(cloud, args.out, {r["rev_id"] for r in read_jsonl(args.out)})
+        return
 
     cred = credentials()
     if use_mock():
@@ -239,9 +318,12 @@ def main() -> None:
     if args.demo:
         make_demo_cards(cred, args.out, done)
         return
+    # A text card (from --published-text) does not count: the image case still needs its picture
+    # card. The new line is appended, and the server keeps the last line of each rev_id.
+    with_picture = {r["rev_id"] for r in read_jsonl(args.out) if r.get("image_url")}
     cases = [r for r in read_jsonl(ANALYSIS)
              if not r.get("synthetic") and r["kind"] == "image" and (r.get("image") or {}).get("thumb_url")
-             and r["rev_id"] not in done
+             and r["rev_id"] not in with_picture
              and ((args.rev_id and r["rev_id"] in args.rev_id)
                   or (args.suspicious and r["nemotron"]["suspicious"]))]
     cases = cases[:args.limit]
