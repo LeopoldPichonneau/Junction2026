@@ -591,3 +591,22 @@ main { min-height: 100vh; }
 .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2fbf71; margin-right: 8px; vertical-align: baseline; }
 .live-dot.off { background: var(--signal); }
 .badge.live-watch { border-color: var(--brand-text); color: var(--brand-text); }
+
+/* Accounts page */
+.accounts-table th[scope="row"] { min-width: 220px; }
+.accounts-table .kind-def { display: block; font-weight: 400; color: var(--text-2); font-size: 12px; max-width: 34ch; white-space: normal; }
+.account-list { padding: 0; }
+.account { list-style: none; }
+.account .account-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); }
+.account-reasons { margin: 10px 0 6px; }
+.account-list .more-row { list-style: none; padding: 16px 0; }
+
+/* Five links and the theme button on one row of a phone. */
+.nav-short { display: none; }
+@media (max-width: 600px) {
+  .nav-long { display: none; }
+  .nav-short { display: inline; }
+  header.site .inner { gap: 6px; padding-left: 8px; padding-right: 8px; }
+  nav { flex: 1 1 auto; justify-content: space-between; min-width: 0; }
+  nav a { padding: 6px 2px; font-size: 11px; }
+}

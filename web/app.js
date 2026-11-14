@@ -251,6 +251,7 @@ const ICONS = {
   timemachine: `<svg ${ICON_ATTRS}><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3.5 2"/></svg>`,
   lens: `<svg ${ICON_ATTRS}><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/><path d="M7.5 10.5h6"/></svg>`,
   quality: `<svg ${ICON_ATTRS}><path d="M12 21s7.5-3.6 7.5-9.5V5.2L12 2.5 4.5 5.2v6.3C4.5 17.4 12 21 12 21z"/><path d="m8.8 11.8 2.2 2.2 4.2-4.3"/></svg>`,
+  accounts: `<svg ${ICON_ATTRS}><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18.5 14.8c1.6.8 2.7 2.5 3 5.2"/></svg>`,
 };
 
 function renderLayout() {
@@ -258,7 +259,8 @@ function renderLayout() {
   const links = [
     ["index.html", "Cases", "home"],
     ["timemachine.html", "Time machine", "timemachine"],
-    ["quality.html", "Detection quality", "quality"],
+    ["accounts.html", "Accounts", "accounts"],
+    ["quality.html", "Detection quality", "quality", "Quality"],
     ["lens.html", "Lens", "lens"],
   ];
   const header = el(
@@ -272,10 +274,11 @@ function renderLayout() {
       el(
         "nav",
         { "aria-label": "Main" },
-        links.map(([href, label, id]) => {
+        links.map(([href, label, id, short]) => {
           const a = el("a", { href, class: id === page ? "active" : null, "aria-current": id === page ? "page" : null });
           a.insertAdjacentHTML("afterbegin", ICONS[id]); // static, trusted markup
-          a.append(el("span", { text: label }));
+          // A shorter word on phones, where five links and the theme button share one row.
+          a.append(short ? el("span", {}, el("span", { class: "nav-long", text: label }), el("span", { class: "nav-short", text: short })) : el("span", { text: label }));
           return a;
         })
       ),
@@ -914,7 +917,10 @@ async function pageCase() {
     section(
       "Account pattern (no account is named)",
       el("p", { text: ACCOUNT_LABELS[acc.kind] || acc.kind || "Unknown" }),
-      acc.reasons && acc.reasons.length ? el("ul", { class: "plain" }, acc.reasons.map((r) => el("li", { text: r }))) : null
+      acc.reasons && acc.reasons.length ? el("ul", { class: "plain" }, acc.reasons.map((r) => el("li", { text: r }))) : null,
+      acc.kind && acc.kind !== "normal"
+        ? el("p", {}, el("a", { href: `accounts.html?kind=${encodeURIComponent(acc.kind)}`, text: `All accounts with this pattern →` }))
+        : null
     ),
 
     editorsSection(c, ex),
@@ -1694,7 +1700,131 @@ async function pageLens() {
 
 // ---------- Boot ----------
 
-const PAGES = { home: pageHome, case: pageCase, timemachine: pageTimeMachine, quality: pageQuality, lens: pageLens };
+// ---------- Accounts: who makes the edits ----------
+
+const KIND_DEFINITIONS = {
+  throwaway: "Active for a day or less, on sensitive articles, then never again.",
+  bot_like: "Edits in fast bursts (dozens within an hour), like a script, without being a declared bot.",
+  single_purpose: "Every edit on one or two articles.",
+  declared_bot: "Official Wikipedia bot doing routine maintenance: harmless, left out of the analysis.",
+  normal: "None of the patterns above.",
+};
+const share = (part, whole) => (whole ? `${Math.round((part / whole) * 100)}%` : "–");
+const shortCode = (hash) => String(hash || "").slice(0, 8);
+
+function accountItem(a) {
+  const cases = a.published_cases || [];
+  return el(
+    "li",
+    { class: "card account", id: `account-${a.account_hash}` },
+    el(
+      "div",
+      { class: "meta" },
+      el("span", { class: "tag", text: ACCOUNT_LABELS[a.kind] || a.kind }),
+      el("span", { class: "account-code", title: "Anonymous code: the account name is never shown", text: `Account ${shortCode(a.account_hash)}` }),
+      el("span", { text: a.ip_editor ? "No account (IP address, not shown)" : "Registered account" }),
+      a.first_seen ? el("span", { text: a.first_seen === a.last_seen ? `Active on ${formatDate(a.first_seen)}` : `Active ${formatDate(a.first_seen)} – ${formatDate(a.last_seen)}` }) : null
+    ),
+    el("ul", { class: "plain account-reasons" }, (a.reasons || []).map((r) => el("li", { text: r }))),
+    el("p", { class: "meta", text: `${fmt(a.edits)} edits on ${fmt(a.articles)} articles (${fmt(a.sensitive_articles)} sensitive) · ${fmt(a.reverted)} reverted by another account` }),
+    cases.length
+      ? el("div", {}, el("p", { class: "label-small", text: `Published ${cases.length === 1 ? "case" : "cases"}` }),
+          el("ul", { class: "plain" }, cases.map((c) => el("li", {}, `${formatDate(c.date)} · `,
+            el("a", { href: `case.html?rev_id=${encodeURIComponent(c.rev_id)}` }, el("span", { lang: "fi", text: c.title }), `: ${c.headline_en || "see the case"}`)))))
+      : null
+  );
+}
+
+async function pageAccounts() {
+  const box = document.getElementById("accounts");
+  let d;
+  try {
+    d = await api("/api/accounts");
+  } catch (err) {
+    errorBox(box, err);
+    return;
+  }
+  const kinds = d.kinds || [];
+  const byKind = Object.fromEntries(kinds.map((k) => [k.kind, k]));
+  const normal = byKind.normal || {};
+  const unusual = kinds.filter((k) => k.kind !== "normal" && k.kind !== "declared_bot");
+  const sum = (key) => unusual.reduce((n, k) => n + (k[key] || 0), 0);
+
+  // The finding: an account's pattern is a weak hint, the evidence is in the edit itself.
+  const finding = section(
+    "What the accounts tell",
+    el("p", { class: "report", text:
+      `${fmt(normal.published)} of the ${fmt(d.published_total)} published cases come from accounts with no unusual pattern. ` +
+      `Among the edits examined by the AI, ${share(normal.suspicious, normal.examined)} of those from ordinary accounts were judged suspicious, ` +
+      `against ${share(sum("suspicious"), sum("examined"))} for bot-like, throwaway and single-topic accounts together.` }),
+    el("p", { text: "So a suspicious-looking account is a hint, never proof, and most manipulation does not come from bots: that is why TimeProof judges the edit itself, and shows the account pattern only as context." })
+  );
+
+  const rows = [...unusual, byKind.declared_bot, normal].filter(Boolean);
+  const table = section(
+    "Accounts by pattern",
+    el("div", { class: "table-scroll" }, el("table", { class: "q-table accounts-table" },
+      el("caption", { class: "sr-only", text: "Accounts by pattern, their edits and what happened to them" }),
+      el("thead", {}, el("tr", {}, ["Pattern", "Accounts", "Without an account (IP)", "Edits reverted by others", "Edits examined by AI", "Judged suspicious", "Published cases"].map((h) => el("th", { scope: "col", text: h })))),
+      el("tbody", {}, rows.map((k) => el("tr", {},
+        el("th", { scope: "row" }, el("span", { text: ACCOUNT_LABELS[k.kind] || k.kind }), el("span", { class: "kind-def", text: KIND_DEFINITIONS[k.kind] || "" })),
+        el("td", { text: fmt(k.accounts) }),
+        el("td", { text: share(k.anonymous, k.accounts) }),
+        el("td", { text: share(k.reverted, k.edits) }),
+        el("td", { text: fmt(k.examined) }),
+        el("td", { text: k.examined ? `${fmt(k.suspicious)} (${share(k.suspicious, k.examined)})` : "–" }),
+        el("td", { text: fmt(k.published) })))))),
+    el("p", { class: "meta", text: `${fmt(d.profiled)} accounts profiled from the edit history. ${d.notes?.ip_editor || ""}` })
+  );
+
+  // Every account with an unusual pattern, filterable by pattern; the filter is kept in the address.
+  const listBox = el("ul", { class: "account-list plain" });
+  const count = el("p", { class: "meta", "aria-live": "polite" });
+  const onlyCases = el("input", { type: "checkbox", id: "only-cases" });
+  let current = unusual.some((k) => k.kind === params.get("kind")) ? params.get("kind") : "";
+  onlyCases.checked = params.get("published") === "1";
+  const PAGE = 30;
+  let shown = PAGE;
+  const filters = el("div", { class: "switch", role: "group", "aria-label": "Show accounts by pattern" });
+  const buttons = [["", "All patterns"], ...unusual.map((k) => [k.kind, `${ACCOUNT_LABELS[k.kind] || k.kind} (${fmt(k.accounts)})`])].map(([kind, label]) => {
+    const b = el("button", { type: "button", class: "pill secondary", "aria-pressed": String(kind === current), text: label });
+    b.addEventListener("click", () => { current = kind; shown = PAGE; draw(); });
+    filters.append(b);
+    return [kind, b];
+  });
+  onlyCases.addEventListener("change", () => { shown = PAGE; draw(); });
+  function draw() {
+    buttons.forEach(([kind, b]) => b.setAttribute("aria-pressed", String(kind === current)));
+    const list = (d.accounts || []).filter((a) => (!current || a.kind === current) && (!onlyCases.checked || (a.published_cases || []).length));
+    count.textContent = `${fmt(list.length)} ${list.length === 1 ? "account" : "accounts"}`;
+    const more = el("button", { type: "button", class: "pill secondary", text: `Show ${fmt(Math.min(PAGE, list.length - shown))} more` });
+    more.addEventListener("click", () => { shown += PAGE; draw(); });
+    listBox.replaceChildren(
+      ...(list.length ? list.slice(0, shown).map(accountItem) : [el("li", { class: "more-row empty", text: "No account with this pattern is behind a published case." })]),
+      ...(list.length > shown ? [el("li", { class: "more-row" }, more)] : []));
+    const p = new URLSearchParams();
+    if (current) p.set("kind", current);
+    if (onlyCases.checked) p.set("published", "1");
+    if (params.get("mock") === "1") p.set("mock", "1");
+    history.replaceState(null, "", p.toString() ? `?${p}` : location.pathname);
+  }
+  draw();
+
+  box.replaceChildren(
+    finding,
+    table,
+    section(
+      "Accounts with an unusual pattern",
+      el("p", { class: "meta", text: `${d.notes?.privacy || ""} ${d.notes?.hint || ""}` }),
+      filters,
+      el("label", { class: "tm-log", for: "only-cases" }, onlyCases, " Only accounts behind a published case"),
+      count,
+      listBox
+    )
+  );
+}
+
+const PAGES = { home: pageHome, case: pageCase, timemachine: pageTimeMachine, accounts: pageAccounts, quality: pageQuality, lens: pageLens };
 
 document.addEventListener("DOMContentLoaded", () => {
   renderLayout();
