@@ -247,6 +247,28 @@ ul.plain li { margin-bottom: 4px; }
 .controls label { display: flex; flex-direction: column; font-size: var(--fs-small); color: var(--text-2); gap: 6px; font-weight: 500; min-width: 0; max-width: 100%; }
 /* Long article titles must not push the page wider than a phone screen. */
 .controls select { max-width: 100%; }
+
+/* Article search with suggestions (combobox) */
+.combo { position: relative; display: flex; flex-direction: column; gap: 6px; flex: 1 1 320px; min-width: 0; max-width: 520px; }
+.combo label { font-size: var(--fs-small); color: var(--text-2); font-weight: 500; }
+.combo input { width: 100%; }
+.combo ul {
+  position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin: 4px 0 0; padding: 4px 0; list-style: none;
+  background: var(--surface); border: 1px solid var(--field-border); border-radius: var(--radius-card);
+  box-shadow: var(--shadow); max-height: 320px; overflow-y: auto;
+}
+.combo li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; cursor: pointer; min-height: 24px; }
+.combo li[aria-selected="true"], .combo li:hover { background: var(--brand-soft); }
+.combo li[aria-selected="true"] { outline: 2px solid var(--focus); outline-offset: -2px; }
+.combo .combo-count { color: var(--text-2); font-size: var(--fs-small); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.combo .combo-empty { color: var(--text-2); cursor: default; }
+.popular { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -8px 0 24px; }
+.popular .label-small { margin: 0 4px 0 0; }
+.tm-log { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--text-2); margin: 0 0 12px; cursor: pointer; min-height: 24px; }
+.tm-log input { width: 18px; height: 18px; margin: 0; accent-color: var(--button); }
+.tm-cases { margin: 0 0 28px; }
+.tm-cases .meta-inline { color: var(--text-2); font-size: var(--fs-small); }
+.popular button[aria-pressed="true"] { background: var(--button); color: var(--on-brand); border-color: var(--button); }
 select, input[type="date"], input[type="search"] {
   font: inherit;
   padding: 8px 12px;
@@ -321,6 +343,7 @@ button:hover { background: var(--button-hover); }
 /* ---------- Lens page ---------- */
 
 .lens-steps { padding-left: 20px; max-width: 680px; }
+.lens-coverage { max-width: 70ch; font-weight: 500; }
 .lens-steps li { margin-bottom: 8px; }
 .lens-drag { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 28px 0; }
 .lens-button { font-size: 16px; padding: 12px 24px; cursor: grab; }
@@ -376,8 +399,8 @@ h2.label-small, h3.label-small { font-family: var(--font-sans); font-size: var(-
 .lead, .report, .case-item p, .article-text, .quality-grid p { max-width: 70ch; }
 
 /* Upper bound marker: explained on hover, on keyboard focus and on tap (tapping focuses it). */
-abbr.approx { text-decoration: underline dotted; cursor: help; position: relative; }
-abbr.approx:hover::after, abbr.approx:focus::after {
+abbr.approx, .tip { text-decoration: underline dotted; cursor: help; position: relative; }
+abbr.approx:hover::after, abbr.approx:focus::after, .tip:hover::after, .tip:focus::after {
   content: attr(data-tip); position: absolute; left: 0; top: 1.6em; z-index: 20; width: max-content; max-width: 260px;
   background: var(--rail); color: var(--rail-text); font: 400 12px/1.45 var(--font-sans); letter-spacing: 0; text-transform: none;
   padding: 8px 10px; border-radius: var(--radius-card); box-shadow: var(--shadow); white-space: normal; }
@@ -441,11 +464,11 @@ main { min-height: 100vh; }
 
 /* Reserve the final height of blocks filled after the data arrives, so nothing below them jumps
    (measured on the live site at 1280 px and 375 px). */
-#stats { min-height: 110px; }
+#stats { min-height: 199px; }   /* funnel + readers line */
 #case-filters { min-height: 191px; }
 #timeline { min-height: 443px; }
 @media (max-width: 720px) {
-  #stats { min-height: 287px; }
+  #stats { min-height: 292px; }
   #case-filters { min-height: 496px; }
   #timeline { min-height: 670px; }
 }
@@ -462,3 +485,84 @@ main { min-height: 100vh; }
   body { padding-top: 84px; }
 }
 @media print { body { padding-top: 0; } }
+
+/* ================= Evidence details (diff, chronology, card, funnel) ================= */
+
+/* Small status badges next to the signal tag. */
+.badge { display: inline-block; font-size: var(--fs-label); font-weight: 600; letter-spacing: 0.04em; padding: 2px 8px;
+  border-radius: var(--radius-button); border: 1px solid var(--field-border); color: var(--text-2); background: var(--surface); }
+.badge.ok { border-color: var(--added-text); color: var(--added-text); background: var(--added); }
+.badge.live { border-color: var(--signal); color: var(--signal); background: var(--signal-soft); }
+.hero-blue .badge { background: var(--surface); }
+
+/* Home cards: the summary stops after three lines; the case page has the full text. */
+.case-item p.summary { display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.case-item .badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.group-title { margin: 32px 0 0; font-size: var(--fs-h3); }
+.group-note { margin: 4px 0 0; color: var(--text-2); font-size: var(--fs-small); max-width: 70ch; }
+
+/* Funnel: from every version to the few cases we publish. */
+.funnel { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 0; }
+.funnel li { display: flex; align-items: center; }
+.funnel li + li::before { content: "\2192"; margin: 0 14px; font-size: 22px; opacity: 0.8; }
+.funnel .stat { min-width: 0; }
+.stats .readers-stat { grid-column: 1 / -1; }
+.stats .readers-stat .label { max-width: 60ch; }
+
+/* Word-by-word diff: removed words struck through, added words underlined, both with a sign. */
+.diff-par { font-family: var(--font-serif); font-size: 17px; line-height: 1.7; margin: 0 0 14px; padding: 12px 14px;
+  background: var(--surface-2); border-radius: var(--radius-card); white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-par del { background: var(--removed); color: var(--removed-text); text-decoration: line-through; }
+.diff-par ins { background: var(--added); color: var(--added-text); text-decoration: none; border-bottom: 2px solid currentColor; }
+.diff-par del::before { content: "\2212"; font-weight: 700; margin-right: 2px; }
+.diff-par ins::before { content: "+"; font-weight: 700; margin-right: 2px; }
+.diff-more { margin: 0 0 12px; }
+.translation { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; margin-top: 16px; }
+.translation p { margin: 0; font-family: var(--font-serif); font-size: 16px; }
+
+/* Chronology of a case. */
+.chrono { list-style: none; margin: 8px 0 0; padding: 0 0 0 18px; border-left: 2px solid var(--line); display: grid; gap: 14px; }
+.chrono li { position: relative; }
+.chrono li::before { content: ""; position: absolute; left: -25px; top: 6px; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--surface); border: 2px solid var(--text-2); }
+.chrono li.edit::before { border-color: var(--signal); background: var(--signal); }
+.chrono li.end::before { border-color: var(--added-text); background: var(--added-text); }
+.chrono strong { display: block; }
+.chrono .meta { margin-top: 2px; }
+
+/* Evidence card made by Cloudinary. */
+.evidence-card img { max-width: 600px; aspect-ratio: 1200 / 630; height: auto; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-top: 12px; }
+.actions .note { font-size: var(--fs-small); color: var(--text-2); }
+
+/* Pipeline figure of the quality page. */
+.pipeline svg { width: 100%; max-width: 860px; height: auto; display: block; }
+.pipeline .box { fill: var(--surface-2); stroke: var(--line); }
+.pipeline .box.key { fill: var(--brand-soft); stroke: var(--brand-text); }
+.pipeline text { fill: var(--text); font: 600 14px var(--font-sans); }
+.pipeline text.sub { fill: var(--text-2); font-weight: 400; font-size: 12px; }
+.pipeline .arrow { stroke: var(--text-2); stroke-width: 1.5; fill: none; }
+.pipeline .arrow-head { fill: var(--text-2); }
+.q-table { border-collapse: collapse; font-size: var(--fs-small); font-variant-numeric: tabular-nums; margin: 8px 0 0; width: 100%; max-width: 760px; }
+.q-table th, .q-table td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.q-table th:first-child, .q-table td:first-child { text-align: left; }
+.table-scroll { overflow-x: auto; }
+
+/* "How Wikipedia names the 1918 war". */
+.terms svg { width: 100%; height: auto; display: block; }
+.terms .axis { stroke: var(--line); }
+.terms .axis-label { fill: var(--text-2); font: 12px var(--font-sans); }
+.terms .line { fill: none; stroke-width: 2.5; }
+.terms .neutral { stroke: var(--text-2); }
+.terms .white { stroke: var(--brand-text); }
+.terms .red { stroke: var(--warning); }
+.terms .legend i.neutral { background: var(--text-2); }
+.terms .legend i.white { background: var(--brand-text); }
+.terms .legend i.red { background: var(--warning); }
+.switch { display: inline-flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.switch button[aria-pressed="true"] { background: var(--button); color: var(--on-brand); border-color: var(--button); }
+
+@media (max-width: 720px) {
+  .translation { grid-template-columns: 1fr; }
+  .funnel li + li::before { margin: 0 8px; }
+}

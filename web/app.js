@@ -69,20 +69,44 @@ const fmt = (n) => (typeof n === "number" ? n.toLocaleString("en-US") : "–");
 
 function readersText(readers) {
   // Pageview data only exists from July 2015, and it counts views of the whole article: an upper bound.
-  if (readers === null || readers === undefined) return "no reader data (before Jul 2015)";
+  if (readers === null || readers === undefined) return "readers unknown (before Jul 2015)";
   return `≈ ${fmt(readers)} readers`;
 }
 
-// Under a day, "0 days" would hide a short but real exposure: count hours instead.
+// Most cases were undone within hours (81 of 97 in less than a day): "0 days" would hide
+// a short but real exposure, so count minutes under an hour and hours + minutes under a day.
 function durationText(days) {
   if (typeof days !== "number") return "? days";
+  const minutes = Math.round(days * 1440);
+  if (minutes < 60) return `${Math.max(1, minutes)} min`;
   if (days < 1) {
-    const h = Math.max(1, Math.round(days * 24));
-    return `${h} ${h === 1 ? "hour" : "hours"}`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m ? `${h} h ${m} min` : `${h} h`;
   }
   const d = Math.round(days);
   return `${fmt(d)} ${d === 1 ? "day" : "days"}`;
 }
+
+// "Hand-checked": a team member found the exact versions where it appeared and disappeared.
+// Otherwise the dates are computed automatically from the history: an estimate.
+function verifiedBadge(verified) {
+  return verified
+    ? el("span", { class: "badge ok", title: "A team member checked by hand the versions where it appeared and disappeared.", text: "Hand-checked" })
+    : el("span", { class: "badge", title: "Computed automatically from the edit history.", text: "Estimate" });
+}
+
+// For calls a page can live without (diff, terms, neighbours): never switch the page to the
+// sample data because one of them failed, and never throw.
+async function optional(path) {
+  try {
+    return usingMock ? await api(path) : await fetchJson(path);
+  } catch (_) {
+    return null;
+  }
+}
+
+const CONFIDENCE_TIP = "How sure the decider model (Gemini) is that this edit is manipulation. A case is published only if the investigator model (Nemotron) also flagged it.";
 
 function exposureText(days, readers, stillOnline) {
   const d = durationText(days);
@@ -294,12 +318,19 @@ function caseItem(c) {
       el(
         "div",
         { class: "meta" },
-        el("span", { class: "tag", text: SIGNAL_LABELS[c.signal_type] || c.signal_type }),
-        el("span", { text: c.title }),
+        el(
+          "span",
+          { class: "badges" },
+          el("span", { class: "tag", text: SIGNAL_LABELS[c.signal_type] || c.signal_type }),
+          c.still_online ? el("span", { class: "badge live", text: "Still online" }) : null,
+          el("span", { class: "badge", text: durationText(c.days_live) }),
+          c.verified ? verifiedBadge(true) : null
+        ),
+        el("span", { lang: "fi", text: c.title }),
         el("span", { text: formatDate(c.date) })
       ),
       el("h3", { text: c.headline_en, style: "margin-top: 10px" }),
-      el("p", { text: c.summary_en }),
+      el("p", { class: "summary", text: c.summary_en }),
       el(
         "div",
         { class: "row-foot" },
@@ -389,9 +420,21 @@ function setupCaseFilters(cases, casesBox) {
     shown.sort(SORTS[sort.value][1]);
     sortName.textContent = SORTS[sort.value][0].toLowerCase();
     countBox.textContent = shown.length === cases.length ? `${cases.length} cases` : `${shown.length} of ${cases.length} cases`;
-    casesBox.replaceChildren(
-      ...(shown.length ? shown.map(caseItem) : [emptyFilters()])
-    );
+    // Sorted by readers, cases without reader data are not "zero readers": they get their own group.
+    let blocks = shown.map(caseItem);
+    if (sort.value === "readers") {
+      const known = shown.filter((c) => typeof c.readers_est === "number");
+      const unknown = shown.filter((c) => typeof c.readers_est !== "number");
+      if (known.length && unknown.length) {
+        blocks = [
+          ...known.map(caseItem),
+          el("h3", { class: "group-title", text: `Readers unknown (${unknown.length} ${unknown.length === 1 ? "case" : "cases"})` }),
+          el("p", { class: "group-note", text: "These edits are older than July 2015, when Wikipedia started publishing daily page views, so nobody can say how many people saw them." }),
+          ...unknown.map(caseItem),
+        ];
+      }
+    }
+    casesBox.replaceChildren(...(shown.length ? blocks : [emptyFilters()]));
     // Keep the view in the address bar (shareable), without adding history entries.
     const p = new URLSearchParams();
     if (q.value.trim()) p.set("q", q.value.trim());
@@ -424,18 +467,23 @@ async function pageHome() {
 
   try {
     const s = await api("/api/stats");
-    const items = [
-      [s.articles, "articles"],
-      [s.versions, "versions in MariaDB"],
+    const stat = (v, l, cls) => el("div", { class: `stat${cls ? ` ${cls}` : ""}` }, el("div", { class: "value", text: fmt(v) }), el("div", { class: "label", text: l }));
+    // The funnel: every number comes from /api/stats, nothing is typed in by hand.
+    const steps = [
+      [s.versions, `versions of ${fmt(s.articles)} articles`],
+      [s.candidates, "candidate edits found by rules"],
       [s.analysed, "edits examined by AI"],
       [s.published, "cases published"],
-    ];
-    if (typeof s.readers_exposed_est === "number" && s.readers_exposed_est > 0) {
-      items.push([s.readers_exposed_est, "readers exposed (≈, upper bound)"]);
+    ].filter(([v]) => typeof v === "number");
+    const blocks = [el("ol", { class: "funnel", "aria-label": "From every version to the published cases", style: "grid-column: 1 / -1" }, steps.map(([v, l]) => el("li", {}, stat(v, l))))];
+    const unknown = s.readers_unknown_cases ? ` · readers unknown for ${s.readers_unknown_cases} older cases (before July 2015)` : "";
+    if (typeof s.readers_unique_est === "number" && s.readers_unique_est > 0) {
+      // Overlapping cases on the same article are counted once; still page views, not readers of the passage.
+      blocks.push(stat(s.readers_unique_est, `readers exposed (≈, upper bound: page views while a case was online, each moment counted once)${unknown}`, "readers-stat"));
+    } else if (typeof s.readers_exposed_est === "number" && s.readers_exposed_est > 0) {
+      blocks.push(stat(s.readers_exposed_est, `readers exposed (≈, ${s.readers_note || "upper bound"})${unknown}`, "readers-stat"));
     }
-    statsBox.replaceChildren(
-      ...items.map(([v, l]) => el("div", { class: "stat" }, el("div", { class: "value", text: fmt(v) }), el("div", { class: "label", text: l })))
-    );
+    statsBox.replaceChildren(...blocks);
   } catch (err) {
     errorBox(statsBox, err);
   }
@@ -475,14 +523,15 @@ function imageAlt(img, shows) {
 }
 
 // An image without author and license must not be displayed: returns null in that case.
-function creditedFigure(img, shows) {
+// The Cloudinary copy (resized, modern format) is used when there is one; the credit stays the same.
+function creditedFigure(img, shows, autoUrl) {
   if (!img || !img.thumb_url) return null;
   const author = plainText(img.author);
   if (!author || !img.license) return null;
   return el(
     "figure",
     {},
-    el("img", { src: img.thumb_url, alt: imageAlt(img, shows), crossorigin: "anonymous", referrerpolicy: "no-referrer" }),
+    el("img", { src: autoUrl || img.thumb_url, alt: imageAlt(img, shows), crossorigin: "anonymous", referrerpolicy: "no-referrer" }),
     el("figcaption", {}, `${img.file || ""} · ${author} · ${img.license}`)
   );
 }
@@ -501,11 +550,191 @@ function captionBlock(img, shown) {
   );
 }
 
+// Date with the time when the data has it ("2025-04-14T21:55Z" -> "14 Apr 2025, 21:55 UTC").
+function dateTimeText(iso) {
+  if (!iso) return "–";
+  const t = String(iso).match(/T(\d{2}:\d{2})/);
+  return t ? `${formatDate(iso)}, ${t[1]} UTC` : formatDate(iso);
+}
+
+// Long unchanged stretches are cut around the change, so the eye goes to what moved.
+function trimEqual(text, first, last) {
+  const room = 220;
+  if (text.length <= room * 2) return text;
+  if (first && last) return text;
+  if (first) return `… ${text.slice(-room)}`;
+  if (last) return `${text.slice(0, room)} …`;
+  return `${text.slice(0, room)} … ${text.slice(-room)}`;
+}
+
+function diffParagraph(segments) {
+  return el("p", { class: "diff-par", lang: "fi" }, segments.map((s, i) => {
+    if (s.op === "delete") return el("del", {}, el("span", { class: "sr-only", text: "removed: " }), s.text);
+    if (s.op === "insert") return el("ins", {}, el("span", { class: "sr-only", text: "added: " }), s.text);
+    return trimEqual(s.text, i === 0, i === segments.length - 1);
+  }));
+}
+
+function diffSection(c, diff) {
+  const translation = c.translation
+    ? el(
+        "div",
+        { class: "translation" },
+        el("div", {}, el("p", { class: "label-small diff-label minus", text: "Before (team translation)" }), el("p", { lang: "en", text: c.translation.before_en || "(nothing)" })),
+        el("div", {}, el("p", { class: "label-small diff-label plus", text: "After (team translation)" }), el("p", { lang: "en", text: c.translation.after_en || "(nothing)" }))
+      )
+    : null;
+
+  // The readable text did not change (only an image, a reference or a template did): keep the fragments.
+  if (!diff || !diff.text_changed || !diff.paragraphs?.length) {
+    if (!c.added && !c.removed && !translation) return null;
+    return section(
+      "What changed",
+      c.added || c.removed
+        ? el(
+            "div",
+            { class: "grid2" },
+            el("div", {}, el("p", { class: "label-small diff-label minus", text: "Removed" }), el("div", { class: "diff-removed", lang: "fi", text: c.removed || "(nothing)" })),
+            el("div", {}, el("p", { class: "label-small diff-label plus", text: "Added" }), el("div", { class: "diff-added", lang: "fi", text: c.added || "(nothing)" }))
+          )
+        : null,
+      translation
+    );
+  }
+
+  const SHOWN = 4;
+  const pars = diff.paragraphs.map(diffParagraph);
+  const box = el("div", {}, pars.slice(0, SHOWN));
+  let more = null;
+  if (pars.length > SHOWN) {
+    more = el("button", { type: "button", class: "pill secondary diff-more", "aria-expanded": "false", text: `Show all ${pars.length} changed paragraphs` });
+    more.addEventListener("click", () => {
+      box.replaceChildren(...pars);
+      more.remove();
+    });
+  }
+  return section(
+    "What changed",
+    el("p", { class: "meta", text: `Word by word, against the version before (${dateTimeText(diff.parent_saved_at)}). Removed words are struck through, added words underlined. References and images are left out of this text.` }),
+    box,
+    more,
+    translation
+  );
+}
+
+// From the edit to its end, with the evidence for each step.
+function chronology(c, ex) {
+  const steps = [
+    el("li", { class: "edit" }, el("strong", { text: `Edited on ${dateTimeText(ex.live_from || c.date)}` }),
+      el("span", { class: "meta" }, `${SIGNAL_LABELS[c.signal_type] || c.signal_type} · `, el("a", { href: c.links?.diff, target: "_blank", rel: "noopener", text: "the edit on Wikipedia" }))),
+    el("li", {}, el("strong", { text: ex.still_online ? `Online for ${durationText(ex.days_live)} so far` : `Online for ${durationText(ex.days_live)}` }),
+      el("span", { class: "meta" }, verifiedBadge(ex.verified), readersText(ex.readers_est))),
+  ];
+  if (ex.still_online) {
+    steps.push(el("li", {}, el("strong", { text: "Still online today" }), el("span", { class: "meta", text: "The change is still in the article." })));
+  } else {
+    const how = ex.ended_by === "revert" ? "Undone by a revert"
+      : ex.ended_by === "content removed" ? "The content was removed"
+      : "Ended (checked by hand)";
+    steps.push(el("li", { class: "end" }, el("strong", { text: `${how} on ${dateTimeText(ex.live_until)}` }),
+      ex.ended_by_link ? el("span", { class: "meta" }, el("a", { href: ex.ended_by_link, target: "_blank", rel: "noopener", text: "the edit that ended it" })) : null));
+  }
+  return section("Chronology", el("ol", { class: "chrono" }, steps));
+}
+
+// Evidence card made by Cloudinary (1200 x 630, the size used by link previews).
+function cardSection(c) {
+  if (!c.evidence_card_url) return null;
+  const shareUrl = `${location.origin}/case/${encodeURIComponent(c.rev_id)}`;
+  const note = el("span", { class: "note", "aria-live": "polite" });
+  const share = el("button", { type: "button", class: "pill", text: "Share" });
+  share.addEventListener("click", async () => {
+    try {
+      if (navigator.share) await navigator.share({ title: c.headline_en, url: shareUrl });
+      else { await navigator.clipboard.writeText(shareUrl); note.textContent = "Link copied."; }
+    } catch (_) {
+      note.textContent = `Copy this link: ${shareUrl}`;
+    }
+  });
+  // fl_attachment makes Cloudinary send the image as a download (a cross-site "download" attribute is ignored).
+  const download = c.evidence_card_url.replace("/image/upload/", `/image/upload/fl_attachment:timeproof-case-${c.rev_id}/`);
+  return section(
+    "Evidence card",
+    el("figure", { class: "evidence-card" },
+      el("img", { src: c.evidence_card_url, alt: `Evidence card: ${c.headline_en || c.title}, before and after the edit`, loading: "lazy", crossorigin: "anonymous", referrerpolicy: "no-referrer", width: "1200", height: "630" }),
+      el("figcaption", { text: "Made with Cloudinary from the exact versions. Text from Finnish Wikipedia, CC BY-SA 4.0." })),
+    el("div", { class: "actions" }, share, el("a", { class: "pill secondary", href: download, text: "Download card" }), note)
+  );
+}
+
+// Everything an editor needs to check the case on Wikipedia, without TimeProof touching it.
+function editorsSection(c, ex) {
+  const page = encodeURIComponent(String(c.title).replaceAll(" ", "_"));
+  const link = (href, text) => el("a", { href, target: "_blank", rel: "noopener", text });
+  const undone = !ex.still_online && ex.ended_by_rev_id ? `, then ended in [[Special:Diff/${ex.ended_by_rev_id}|${ex.ended_by_rev_id}]] on ${formatDate(ex.live_until)}` : ex.still_online ? ", and is still in the article" : "";
+  const note =
+    `== An edit that may deserve a look ==\n` +
+    `The edit [[Special:Diff/${c.rev_id}|${c.rev_id}]] ([https://fi.wikipedia.org/?oldid=${c.rev_id} version]) of ${formatDate(c.date)} ` +
+    `stayed online for ${durationText(ex.days_live)}${undone}. ` +
+    `It may deserve a look: ${c.headline_en || SIGNAL_LABELS[c.signal_type] || ""}. ` +
+    `Evidence: ${location.origin}/case/${c.rev_id} (TimeProof names no account and never edits Wikipedia.) ~~~~`;
+  const text = el("textarea", { class: "talk-note", readonly: "readonly", rows: "6", "aria-label": "Talk-page note in wikitext", lang: "en" });
+  text.value = note;
+  const status = el("span", { class: "note", "aria-live": "polite" });
+  const copy = el("button", { type: "button", class: "pill", text: "Copy a talk-page note" });
+  copy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(note); status.textContent = "Copied. Paste it on the article's talk page."; }
+    catch (_) { text.select(); status.textContent = "Select the text below and copy it."; }
+  });
+  return section(
+    "For Wikipedia editors",
+    el("p", {}, link(c.links?.version, "This version"), " · ", link(c.links?.diff, "The edit (diff)"), " · ",
+      link(`https://fi.wikipedia.org/wiki/${page}`, "The article today"), " · ",
+      link(`https://fi.wikipedia.org/w/index.php?title=${page}&action=history`, "Full history"), " · ",
+      link(`https://fi.wikipedia.org/wiki/Keskustelu:${page}`, "Talk page")),
+    el("div", { class: "actions" }, copy, status),
+    el("details", {}, el("summary", { text: "See the note" }), text),
+    el("p", { class: "meta", text: "Nothing is stored by TimeProof and nothing is posted for you: you decide whether to use the note." })
+  );
+}
+
+// Moving around during a demo: the article before / after, neighbours, other cases on the article.
+function navigationSection(c, diff, all) {
+  const tm = (asOf) => `timemachine.html?page_id=${encodeURIComponent(c.page_id)}&as_of=${encodeURIComponent(asOf)}`;
+  const before = diff?.parent_saved_at;
+  const after = diff?.saved_at;
+  const links = [];
+  if (before) links.push(el("a", { class: "pill secondary", href: tm(before), text: "See the article before this edit" }));
+  links.push(el("a", { class: "pill secondary", href: tm(after || c.date), text: "See the article after this edit" }));
+
+  let neighbours = null;
+  let others = null;
+  if (Array.isArray(all) && all.length) {
+    const i = all.findIndex((x) => String(x.rev_id) === String(c.rev_id));
+    const go = (x, label) => el("a", { href: `case.html?rev_id=${encodeURIComponent(x.rev_id)}`, rel: label === "Previous case" ? "prev" : "next" }, `${label}: `, el("span", { text: x.headline_en || x.title }));
+    if (i >= 0) {
+      neighbours = el("p", { class: "case-nav" },
+        i > 0 ? go(all[i - 1], "Previous case") : null,
+        i > 0 && i < all.length - 1 ? " · " : null,
+        i < all.length - 1 ? go(all[i + 1], "Next case") : null);
+    }
+    const same = all.filter((x) => String(x.page_id) === String(c.page_id) && String(x.rev_id) !== String(c.rev_id));
+    if (same.length) {
+      others = el("div", {},
+        el("h3", { class: "label-small", text: `Other cases on “${c.title}” (${same.length})` }),
+        el("ul", { class: "plain" }, same.slice(0, 5).map((x) => el("li", {}, `${formatDate(x.date)} · `, el("a", { href: `case.html?rev_id=${encodeURIComponent(x.rev_id)}`, text: x.headline_en || `Case ${x.rev_id}` })))),
+        same.length > 5 ? el("p", {}, el("a", { href: `index.html?article=${encodeURIComponent(c.title)}`, text: `All ${same.length + 1} cases on this article →` })) : null);
+    }
+  }
+  return section("Explore", el("div", { class: "actions" }, links), others, neighbours);
+}
+
 async function pageCase() {
   const box = document.getElementById("case");
   const back = document.querySelector("a.back-link");
   if (back) back.href = resultsLink();
-  const revId = params.get("rev_id");
+  // ?rev= is accepted too, as people shorten links by hand.
+  const revId = params.get("rev_id") || params.get("rev");
   if (!revId || !/^\d+$/.test(revId)) {
     box.replaceChildren(el("p", { class: "error", text: "Missing case id." }));
     return;
@@ -517,6 +746,9 @@ async function pageCase() {
     errorBox(box, err);
     return;
   }
+  // Both are optional: without them the page keeps the fragments and drops the neighbours.
+  const [diff, all] = await Promise.all([optional(`/api/cases/${revId}/diff`), optional("/api/cases")]);
+
   document.title = `${c.headline_en} · TimeProof`;
   const ex = c.exposure || {};
   const inv = c.investigator || {};
@@ -525,7 +757,8 @@ async function pageCase() {
   const findings = inv.image_findings;
 
   // Wrapped in a div so optional blocks (null) are skipped by el() instead of printed as "null".
-  const figure = creditedFigure(c.image, findings && findings.what_it_shows);
+  const figure = creditedFigure(c.image, findings && findings.what_it_shows, c.image_auto_url);
+  const confidence = Math.round((c.confidence || 0) * 100);
 
   box.replaceChildren(el("div", {},
     el(
@@ -541,15 +774,17 @@ async function pageCase() {
           el("span", { class: "tag flag", text: SIGNAL_LABELS[c.signal_type] || c.signal_type }),
           el("span", { lang: "fi", text: c.title }),
           el("span", { text: `Edit of ${formatDate(c.date)}` }),
-          el("span", { text: `Confidence ${Math.round((c.confidence || 0) * 100)}%` })
+          el("span", { class: "tip", tabindex: "0", title: CONFIDENCE_TIP, "data-tip": CONFIDENCE_TIP, text: `Confidence ${confidence}%` })
         ),
         el("h1", { text: c.headline_en }),
         el(
           "ul",
           { class: "glance", "aria-label": "At a glance" },
-          el("li", {}, el("strong", { text: "What" }), `${SIGNAL_LABELS[c.signal_type] || c.signal_type} in “${c.title}”, edit of ${formatDate(c.date)}`),
-          el("li", {}, el("strong", { text: "How long" }), ex.still_online ? `still online after ${durationText(ex.days_live)}` : `online for ${durationText(ex.days_live)}`),
-          el("li", {}, el("strong", { text: "Readers" }), readersText(ex.readers_est))
+          // Each value sits in one span: the glance is a two-column grid.
+          el("li", {}, el("strong", { text: "What" }), el("span", { text: `${SIGNAL_LABELS[c.signal_type] || c.signal_type} in “${c.title}”, edit of ${formatDate(c.date)}` })),
+          el("li", {}, el("strong", { text: "How long" }),
+            el("span", {}, `${ex.still_online ? `still online after ${durationText(ex.days_live)}` : `online for ${durationText(ex.days_live)}`} `, verifiedBadge(ex.verified))),
+          el("li", {}, el("strong", { text: "Readers" }), el("span", { text: readersText(ex.readers_est) }))
         ),
         el("p", { class: "lead", text: c.summary_en })
       )
@@ -563,24 +798,16 @@ async function pageCase() {
       el(
         "p",
         { class: "meta" },
-        `From ${formatDate(ex.live_from)} to ${ex.still_online ? "today (still online)" : formatDate(ex.live_until)}. ` +
+        `From ${dateTimeText(ex.live_from)} to ${ex.still_online ? "today (still online)" : dateTimeText(ex.live_until)}. ` +
+          (ex.verified ? "Dates checked by hand. " : "Dates computed from the edit history (estimate). ") +
           "Readers are an upper bound: daily views of the whole article over that period."
       )
     ),
 
+    chronology(c, ex),
     captionBlock(c.image, Boolean(figure)),
-
-    c.added || c.removed
-      ? section(
-          "What changed",
-          el(
-            "div",
-            { class: "grid2" },
-            el("div", {}, el("p", { class: "label-small diff-label minus", text: "Removed" }), el("div", { class: "diff-removed", lang: "fi", text: c.removed || "(nothing)" })),
-            el("div", {}, el("p", { class: "label-small diff-label plus", text: "Added" }), el("div", { class: "diff-added", lang: "fi", text: c.added || "(nothing)" }))
-          )
-        )
-      : null,
+    diffSection(c, diff),
+    cardSection(c),
 
     section(
       `Investigator · ${inv.model || "unknown model"}`,
@@ -598,7 +825,8 @@ async function pageCase() {
         : null
     ),
 
-    section(`Decider · ${dec.model || "unknown model"}`, el("p", { class: "report", text: dec.explanation || "" })),
+    section(`Decider · ${dec.model || "unknown model"}`, el("p", { class: "report", text: dec.explanation || "" }),
+      el("p", { class: "meta", text: `Confidence ${confidence}%: ${CONFIDENCE_TIP}` })),
 
     section(
       "Account pattern (no account is named)",
@@ -606,17 +834,8 @@ async function pageCase() {
       acc.reasons && acc.reasons.length ? el("ul", { class: "plain" }, acc.reasons.map((r) => el("li", { text: r }))) : null
     ),
 
-    section(
-      "Check it yourself on Wikipedia",
-      el(
-        "p",
-        {},
-        el("a", { href: c.links?.version, target: "_blank", rel: "noopener", text: "This version" }),
-        " · ",
-        el("a", { href: c.links?.diff, target: "_blank", rel: "noopener", text: "Difference with the previous version" })
-      ),
-      el("p", { class: "meta", text: "A case is published only when both AI models agree it is likely manipulation." })
-    )
+    editorsSection(c, ex),
+    navigationSection(c, diff, all)
   ));
 }
 
@@ -670,11 +889,15 @@ function renderTimeline(box, rows, cases, onPick) {
   // Bars are drawn for the mouse; the keyboard and screen readers use the chart as a single
   // slider (one tab stop instead of hundreds of 3 px targets), plus a table by year below.
   let current = rows.length - 1;
+  // Linear by default; the logarithmic scale keeps quiet months visible next to a peak
+  // (Suomen sisällissota had about ten times its usual edits in September 2005).
+  let log = false;
+  const scale = (v) => (log ? Math.log10(1 + v) / Math.log10(1 + top) : v / top);
+  const revs = [];
   const bars = rows.map((r, i) => {
     const bar = el("div", { class: "bar", "aria-hidden": "true" });
-    bar.style.height = `${(r.edits / top) * 100}%`;
     const rev = el("div", { class: "rev" });
-    rev.style.height = r.edits ? `${(r.reverts / r.edits) * 100}%` : "0";
+    revs.push(rev);
     bar.append(rev);
     if (casesByMonth.has(r.month)) bar.append(el("span", { class: "case-mark" }));
     bar.addEventListener("mouseenter", () => describe(r));
@@ -697,9 +920,21 @@ function renderTimeline(box, rows, cases, onPick) {
   }
 
   // Y axis: 0, half and top of the scale, with grid lines behind the bars.
-  const yTicks = [top, top / 2, 0];
-  const yAxis = el("div", { class: "tm-y" }, yTicks.map((v) => el("span", { text: fmt(v) })));
-  const grid = el("div", { class: "tm-grid" }, yTicks.map(() => el("i")));
+  const yAxis = el("div", { class: "tm-y" }, el("span"), el("span"), el("span"));
+  const grid = el("div", { class: "tm-grid" }, el("i"), el("i"), el("i"));
+  function paint() {
+    rows.forEach((r, i) => {
+      bars[i].style.height = `${scale(r.edits) * 100}%`;
+      // The revert share stays a share of the bar on both scales.
+      revs[i].style.height = r.edits ? `${(scale(r.reverts) / scale(r.edits)) * 100}%` : "0";
+    });
+    const middle = log ? Math.round(10 ** (Math.log10(1 + top) / 2) - 1) : top / 2;
+    [top, middle, 0].forEach((v, i) => (yAxis.children[i].textContent = fmt(v)));
+  }
+  paint();
+  const logBox = el("input", { type: "checkbox", id: "tm-log" });
+  logBox.addEventListener("change", () => { log = logBox.checked; paint(); });
+  const logToggle = el("label", { class: "tm-log", for: "tm-log" }, logBox, " Logarithmic scale (keeps quiet months visible next to the busiest ones)");
   const plot = el("div", {
     class: "timeline", tabindex: "0", role: "slider",
     "aria-label": `Edits per month, ${monthLabel(rows[0].month)} to ${monthLabel(rows[rows.length - 1].month)}. Arrow keys change the month, Page Up and Page Down jump a year, Enter opens the article at that month.`,
@@ -755,12 +990,25 @@ function renderTimeline(box, rows, cases, onPick) {
     })
   );
 
+  // The red marks are mouse-sized: the same cases as plain links, readable with any device.
+  const caseList = cases.length
+    ? el(
+        "div",
+        { class: "tm-cases" },
+        el("h2", { class: "label-small", text: `TimeProof ${cases.length === 1 ? "case" : "cases"} on this article` }),
+        el("ul", { class: "plain" }, [...cases].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((c) =>
+          el("li", {}, el("span", { class: "meta-inline", text: `${formatDate(c.date)} · ${SIGNAL_LABELS[c.signal_type] || c.signal_type} · ` }),
+            el("a", { href: `case.html?rev_id=${encodeURIComponent(c.rev_id)}`, text: c.headline_en || `Case ${c.rev_id}` }))))
+      )
+    : null;
+
   resetReadout();
   box.replaceChildren(
     stats,
     el(
       "figure",
       { class: "tm-chart" },
+      logToggle,
       el("p", { class: "tm-axis-title", text: "Edits per month" }),
       el("div", { class: "tm-plot" }, yAxis, el("div", {}, plot, xAxis)),
       el("p", { class: "tm-axis-title tm-x-title", text: "Month of the edit (UTC)" }),
@@ -776,47 +1024,214 @@ function renderTimeline(box, rows, cases, onPick) {
         "month with a published TimeProof case"
       ),
       table
-    )
+    ),
+    caseList
   );
 }
 
+// "How Wikipedia names the 1918 war": share of each kind of name, month by month
+// (data/exchange/term-timeline.json, made by analysis/term_timeline.py, served by /api/terms).
+const TERM_GROUPS = [
+  ["neutral", "neutral", "Neutral names (sisällissota, kansalaissota, veljessota)"],
+  ["white_framing", "white", "White side's names (vapaussota, punakapina)"],
+  ["red_framing", "red", "Red side's name (luokkasota)"],
+];
+
+function renderTerms(box, data) {
+  const views = [
+    ["article", data.article?.title ? `“${data.article.title}”` : "The main article", data.article?.months || []],
+    ["corpus", `All ${fmt(data.corpus?.articles)} articles`, data.corpus?.months || []],
+  ].filter(([, , months]) => months.length);
+  if (!views.length) return;
+  box.hidden = false;
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = (tag, attrs = {}, text) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const W = 800, H = 240, L = 44, R = 12, T = 12, B = 28;
+  const plotBox = el("div");
+  const summary = el("p", { class: "tm-readout", "aria-live": "polite" });
+  const tableBox = el("div");
+  const share = (m, key) => {
+    const total = TERM_GROUPS.reduce((s, [k]) => s + (m.groups?.[k] || 0), 0);
+    return total ? (m.groups[key] || 0) / total : null;
+  };
+
+  function draw(months, label) {
+    const x = (i) => L + (i / Math.max(1, months.length - 1)) * (W - L - R);
+    const y = (v) => T + (1 - v) * (H - T - B);
+    const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Share of each kind of name for the 1918 war, ${label}, ${monthLabel(months[0].month)} to ${monthLabel(months[months.length - 1].month)}` });
+    for (const v of [0, 0.5, 1]) {
+      root.append(svg("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "axis" }));
+      root.append(svg("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", class: "axis-label" }, `${v * 100}%`));
+    }
+    months.forEach((m, i) => {
+      if (m.month.endsWith("-01") && Number(m.month.slice(0, 4)) % (window.innerWidth < 600 ? 6 : 3) === 0) {
+        root.append(svg("text", { x: x(i), y: H - 8, "text-anchor": "middle", class: "axis-label" }, m.month.slice(0, 4)));
+      }
+    });
+    for (const [key, cls] of TERM_GROUPS) {
+      let d = "";
+      months.forEach((m, i) => {
+        const v = share(m, key);
+        if (v === null) return;
+        d += `${d ? "L" : "M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`;
+      });
+      root.append(svg("path", { d, class: `line ${cls}` }));
+    }
+    plotBox.replaceChildren(root);
+    const last = months[months.length - 1];
+    summary.textContent = `${monthLabel(last.month)}: ` + TERM_GROUPS.map(([k, , name]) => `${pctText(last.groups?.[k] || 0, TERM_GROUPS.reduce((s, [g]) => s + (last.groups?.[g] || 0), 0))} ${name.split(" (")[0].toLowerCase()}`).join(" · ");
+    // One row per year (state in January), for screen readers and anyone who prefers numbers.
+    const rows = months.filter((m) => m.month.endsWith("-01"));
+    tableBox.replaceChildren(el("details", { class: "tm-table" }, el("summary", { text: "Show the numbers as a table (January of each year)" }),
+      el("table", {}, el("caption", { class: "sr-only", text: `Mentions of each kind of name, ${label}` }),
+        el("thead", {}, el("tr", {}, ["Year", "Neutral", "White side", "Red side"].map((h) => el("th", { scope: "col", text: h })))),
+        el("tbody", {}, rows.map((m) => el("tr", {}, el("th", { scope: "row", text: m.month.slice(0, 4) }),
+          TERM_GROUPS.map(([k]) => el("td", { text: fmt(m.groups?.[k] || 0) }))))))));
+  }
+
+  const buttons = views.map(([id, label, months], i) => {
+    const b = el("button", { type: "button", class: "pill secondary", "aria-pressed": String(i === 0), text: label });
+    b.addEventListener("click", () => {
+      buttons.forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+      draw(months, label);
+    });
+    return b;
+  });
+  box.replaceChildren(
+    el("h2", { text: "How Wikipedia names the 1918 war" }),
+    el("p", { class: "meta", text: "Each month, the share of each name in the text as it stood at the end of that month. The name chosen tells which side the text takes." }),
+    el("div", { class: "switch", role: "group", "aria-label": "Which articles" }, buttons),
+    el("figure", { class: "tm-chart" }, plotBox, summary,
+      el("figcaption", { class: "legend" }, TERM_GROUPS.flatMap(([, cls, name]) => [el("i", { class: cls }), name]))),
+    tableBox
+  );
+  draw(views[0][2], views[0][1]);
+}
+
+// Search box for the article (WAI-ARIA combobox): the server returns the 20 most edited
+// matches, so the page never loads the 19,742 titles at once.
+function articleSearch(input, list, onChoose) {
+  let timer = null;
+  let asked = 0;          // only the answer to the latest keystroke is shown
+  let items = [];
+  let active = -1;
+
+  const close = () => {
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+    active = -1;
+  };
+  const highlight = (i) => {
+    active = i;
+    [...list.children].forEach((li, j) => li.setAttribute("aria-selected", j === i ? "true" : "false"));
+    if (i >= 0 && list.children[i]) {
+      input.setAttribute("aria-activedescendant", list.children[i].id);
+      list.children[i].scrollIntoView({ block: "nearest" });
+    } else input.removeAttribute("aria-activedescendant");
+  };
+  const choose = (a) => {
+    close();
+    input.value = a.title;
+    onChoose(a);
+  };
+  const show = (found, query) => {
+    items = found;
+    if (!found.length) {
+      list.replaceChildren(el("li", { class: "combo-empty", role: "option", "aria-disabled": "true", id: "article-none", text: `No article title contains “${query}”.` }));
+    } else {
+      list.replaceChildren(...found.map((a, i) => {
+        const li = el("li", { role: "option", id: `article-opt-${i}`, "aria-selected": "false" },
+          el("span", { lang: "fi", text: a.title }), el("span", { class: "combo-count", text: `${fmt(a.versions)} versions` }));
+        // mousedown, not click: it fires before the input loses focus.
+        li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(a); });
+        return li;
+      }));
+    }
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+    active = -1;
+  };
+  async function search(query) {
+    const ticket = ++asked;
+    let found;
+    try {
+      found = await api(`/api/articles?q=${encodeURIComponent(query)}&limit=20`);
+    } catch (_) {
+      return;
+    }
+    if (ticket !== asked) return;
+    // The local sample files ignore ?q=, so filter them here. The real API already matched
+    // (ignoring accents too: "sisallis" finds "sisällissota"), so its answer is kept as is.
+    const low = query.toLowerCase();
+    show(usingMock ? found.filter((a) => a.title.toLowerCase().includes(low)).slice(0, 20) : found, query);
+  }
+
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const query = input.value.trim();
+    if (query.length < 2) { asked++; close(); return; }
+    timer = setTimeout(() => search(query), 200);
+  });
+  input.addEventListener("keydown", (e) => {
+    const open = !list.hidden && items.length;
+    if (e.key === "ArrowDown" && open) highlight(Math.min(active + 1, items.length - 1));
+    else if (e.key === "ArrowUp" && open) highlight(Math.max(active - 1, 0));
+    else if (e.key === "Enter" && open) choose(items[active >= 0 ? active : 0]);
+    else if (e.key === "Escape" && !list.hidden) close();
+    else return;
+    e.preventDefault();
+  });
+  input.addEventListener("blur", () => setTimeout(close, 100));
+}
+
 async function pageTimeMachine() {
-  const select = document.getElementById("article");
+  const input = document.getElementById("article-q");
+  const list = document.getElementById("article-list");
+  const popularBox = document.getElementById("popular");
   const dateInput = document.getElementById("as-of");
   const goBtn = document.getElementById("go");
   const timelineBox = document.getElementById("timeline");
   const textBox = document.getElementById("article-text");
 
-  let articles = [];
+  // Most edited articles, as one-click shortcuts.
+  let popular = [];
   try {
-    articles = await api("/api/articles");
+    popular = (await api("/api/articles?limit=8")).slice(0, 8);
   } catch (err) {
     errorBox(textBox, err);
     return;
   }
-  select.replaceChildren(...articles.map((a) => el("option", { value: a.page_id, text: `${a.title} (${fmt(a.versions)} versions)` })));
-  const wanted = params.get("page_id");
-  if (wanted && articles.some((a) => String(a.page_id) === wanted)) select.value = wanted;
-  dateInput.value = params.get("as_of") || "2015-06-01";
+
+  let pageId = /^\d+$/.test(params.get("page_id") || "") ? params.get("page_id") : String(popular[0]?.page_id || "");
+  // A link from a case carries the exact second of the edit (as_of=2019-09-27T21:53:44Z);
+  // the date field only holds a day, so that exact time is used until the date is changed.
+  let exactAsOf = /T/.test(params.get("as_of") || "") ? params.get("as_of") : null;
+  dateInput.value = (params.get("as_of") || "2015-06-01").slice(0, 10);
 
   async function loadText() {
-    const pageId = select.value;
-    const asOf = dateInput.value;
+    const asOf = exactAsOf && exactAsOf.slice(0, 10) === dateInput.value ? exactAsOf : dateInput.value;
     if (!pageId || !asOf) return;
     textBox.replaceChildren(el("p", { class: "empty", text: "Loading…" }));
     try {
       const a = await api(`/api/articles/${pageId}?as_of=${encodeURIComponent(asOf)}`);
+      input.value = a.title;
       textBox.replaceChildren(
         el("h2", { lang: "fi", text: a.title }),
         el(
           "p",
           { class: "meta" },
-          `As of ${formatDate(asOf)}: version saved on ${formatDate(a.saved_at)} · `,
+          `As of ${formatDate(asOf)}${asOf.includes("T") ? `, ${asOf.slice(11, 16)} UTC` : ""}: version saved on ${formatDate(a.saved_at)} · `,
           el("a", { href: `https://fi.wikipedia.org/?oldid=${a.rev_id}`, target: "_blank", rel: "noopener", text: "open on Wikipedia" })
         ),
         el("div", { class: "card article-text", lang: "fi", text: a.text || "" })
       );
-      history.replaceState(null, "", `?page_id=${pageId}&as_of=${asOf}${usingMock && !IS_LOCAL ? "&mock=1" : ""}`);
+      history.replaceState(null, "", `?page_id=${pageId}&as_of=${encodeURIComponent(asOf)}${usingMock && !IS_LOCAL ? "&mock=1" : ""}`);
     } catch (err) {
       errorBox(textBox, err);
     }
@@ -832,11 +1247,12 @@ async function pageTimeMachine() {
 
   async function loadTimeline() {
     try {
-      const rows = await api(`/api/articles/${select.value}/timeline`);
-      const here = allCases.filter((c) => String(c.page_id) === String(select.value));
+      const rows = await api(`/api/articles/${pageId}/timeline`);
+      const here = allCases.filter((c) => String(c.page_id) === String(pageId));
       renderTimeline(timelineBox, rows, here, (month, bar) => {
         timelineBox.querySelectorAll(".bar.selected").forEach((b) => b.classList.remove("selected"));
         bar.classList.add("selected");
+        exactAsOf = null;
         dateInput.value = `${month}-15`;
         loadText();
       });
@@ -845,12 +1261,30 @@ async function pageTimeMachine() {
     }
   }
 
-  select.addEventListener("change", () => {
+  function open(id) {
+    pageId = String(id);
+    popularBox.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === pageId)));
     loadTimeline();
     loadText();
-  });
-  goBtn.addEventListener("click", loadText);
+  }
+
+  popularBox.replaceChildren(
+    el("span", { class: "label-small", text: "Popular" }),
+    ...popular.map((a) => {
+      const b = el("button", { type: "button", class: "pill secondary", "data-id": a.page_id, "aria-pressed": String(String(a.page_id) === pageId), lang: "fi", text: a.title });
+      b.addEventListener("click", () => open(a.page_id));
+      return b;
+    })
+  );
+  articleSearch(input, list, (a) => open(a.page_id));
+  goBtn.addEventListener("click", () => { exactAsOf = null; loadText(); });
+  dateInput.addEventListener("change", () => { exactAsOf = null; });
+  // Optional: stays hidden until the term file exists on the server. Drawn before the article
+  // text arrives, so nothing jumps under the reader's eyes.
+  const termsAsked = optional("/api/terms");
   await loadTimeline();
+  const terms = await termsAsked;
+  if (terms && Object.keys(terms).length) renderTerms(document.getElementById("terms"), terms);
   await loadText();
 }
 
@@ -859,6 +1293,46 @@ async function pageTimeMachine() {
 function pct(a, b) {
   return b ? `${Math.round((a / b) * 100)}%` : "–";
 }
+
+// The pipeline as a figure: horizontal on a wide screen, vertical on a phone so the text stays readable.
+function pipelineFigure(steps) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = (tag, attrs = {}, text) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const vertical = window.innerWidth < 640;
+  const W = 184, H = vertical ? 88 : 104, GAP = vertical ? 24 : 30;
+  const width = vertical ? 300 : steps.length * W + (steps.length - 1) * GAP;
+  const height = vertical ? steps.length * H + (steps.length - 1) * GAP : H;
+  const root = svg("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-labelledby": "pipe-title pipe-desc" });
+  root.append(svg("title", { id: "pipe-title" }, "How a case gets published"));
+  root.append(svg("desc", { id: "pipe-desc" }, steps.map((s) => `${s.title}: ${s.sub}`).join(". ")));
+  const defs = svg("defs");
+  const marker = svg("marker", { id: "pipe-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+  marker.append(svg("path", { d: "M0 0 L10 5 L0 10 z", class: "arrow-head" }));
+  defs.append(marker);
+  root.append(defs);
+  steps.forEach((s, i) => {
+    const x = vertical ? 0 : i * (W + GAP);
+    const y = vertical ? i * (H + GAP) : 0;
+    const w = vertical ? width : W;
+    root.append(svg("rect", { x, y, width: w, height: H, rx: "4", class: `box${s.key ? " key" : ""}` }));
+    root.append(svg("text", { x: x + 12, y: y + 30 }, s.title));
+    s.sub.split("\n").forEach((line, j) => root.append(svg("text", { x: x + 12, y: y + 52 + j * 16, class: "sub" }, line)));
+    if (i < steps.length - 1) {
+      const d = vertical
+        ? `M${width / 2} ${y + H + 4} V${y + H + GAP - 4}`
+        : `M${x + W + 4} ${H / 2} H${x + W + GAP - 4}`;
+      root.append(svg("path", { d, class: "arrow", "marker-end": "url(#pipe-arrow)" }));
+    }
+  });
+  return el("figure", { class: "pipeline" }, root);
+}
+
+const pctOf = (share) => (typeof share === "number" ? `${Math.round(share * 100)}%` : "–");
 
 async function pageQuality() {
   const box = document.getElementById("quality");
@@ -869,19 +1343,31 @@ async function pageQuality() {
     errorBox(box, err);
     return;
   }
+  const s = (await optional("/api/stats")) || {};
+  const det = q.details || {};
+  const dec = det.decisions || {};
   const notes = q.notes || {};
   const cards = [];
   const card = (value, title, sentence) =>
     cards.push(el("section", { class: "card" }, el("h2", { class: "label-small", text: title }), el("div", { class: "value", text: value }), el("p", { text: sentence })));
 
+  // Every number of the figure comes from the API; a missing one is shown as "–".
+  const n = (v) => (typeof v === "number" ? fmt(v) : "–");
+  const steps = [
+    { title: "Rules", sub: `scan ${n(s.versions)} versions\n→ ${n(s.candidates)} candidates` },
+    { title: "Nemotron investigates", sub: `${n(s.analysed ?? ([dec.flag, dec.human_review, dec.dismiss].every(Number.isFinite) ? dec.flag + dec.human_review + dec.dismiss : undefined))} edits examined\nimages, sources, words` },
+    { title: "Gemini decides", sub: `flag, dismiss or\nask a human\n${n(dec.dismiss)} dismissed` },
+    { title: "Two-model rule", sub: "publish only if\nboth models agree", key: true },
+    { title: "Published / human", sub: `${n(dec.flag ?? det.published)} published\n${n(dec.human_review)} sent to a human` },
+  ];
+
   // Each block is optional so the page keeps working if a field is added or dropped.
   if (q.synthetic_campaign) {
-    const s = q.synthetic_campaign;
+    const t = q.synthetic_campaign;
     card(
-      `${s.caught} / ${s.planted}`,
+      `${t.caught} / ${t.planted}`,
       "Test campaign caught",
-      `We planted ${s.planted} fake manipulative edits in a test copy and ran them through the full pipeline: ${s.caught} were caught (${pct(s.caught, s.planted)}). ` +
-        (notes.synthetic_campaign || "These test edits are never shown publicly.")
+      `We planted ${t.planted} fake manipulative edits in a test copy and ran them through the full pipeline: ${t.caught} were caught (${pct(t.caught, t.planted)}). These test edits are never shown publicly.`
     );
   }
   if (q.manual_review) {
@@ -893,31 +1379,67 @@ async function pageQuality() {
     );
   }
   if (typeof q.downgraded_by_two_model_rule === "number") {
-    card(
-      fmt(q.downgraded_by_two_model_rule),
-      "Cases held back by the two-model rule",
-      "Cases where only one of the two AI models saw a problem. They go to human review instead of being published."
-    );
+    card(fmt(q.downgraded_by_two_model_rule), "Cases held back by the two-model rule",
+      notes.downgraded_by_two_model_rule || "Cases where only one of the two AI models saw a problem. They go to human review instead of being published.");
   }
   if (typeof q.declared_bots_excluded === "number") {
-    card(
-      fmt(q.declared_bots_excluded),
-      "Official bots excluded",
-      "Accounts declared as bots on Finnish Wikipedia do routine maintenance. They are treated as harmless and left out."
-    );
+    card(fmt(q.declared_bots_excluded), "Official bots excluded",
+      "Accounts declared as bots on Finnish Wikipedia do routine maintenance. They are treated as harmless and left out.");
   }
   if (typeof q.suspicious_accounts === "number") {
-    card(
-      fmt(q.suspicious_accounts),
-      "Accounts with an unusual pattern",
-      "Bot-like rhythm, short-lived or single-topic accounts. A pattern is a hint, not proof, and no account is named."
-    );
+    card(fmt(q.suspicious_accounts), "Accounts with an unusual pattern",
+      "Bot-like rhythm, short-lived or single-topic accounts. A pattern is a hint, not proof, and no account is named.");
   }
-  const known = new Set(["synthetic_campaign", "manual_review", "downgraded_by_two_model_rule", "declared_bots_excluded", "suspicious_accounts", "notes"]);
+  const known = new Set(["synthetic_campaign", "manual_review", "downgraded_by_two_model_rule", "declared_bots_excluded", "suspicious_accounts", "notes", "long_tail", "repeat_accounts", "time_online", "details"]);
   for (const [k, v] of Object.entries(q)) {
     if (!known.has(k) && (typeof v === "number" || typeof v === "string")) card(String(v), k.replaceAll("_", " "), "");
   }
-  box.replaceChildren(cards.length ? el("div", { class: "quality-grid" }, cards) : el("p", { class: "empty", text: "No quality figures yet." }));
+
+  const blocks = [section("How a case gets published", pipelineFigure(steps),
+    el("p", { class: "meta", text: "Nemotron (the investigator) and Gemini (the decider) are two different AI models. When they disagree, nothing is published: a human decides." }))];
+  blocks.push(cards.length ? el("div", { class: "quality-grid" }, cards) : el("p", { class: "empty", text: "No quality figures yet." }));
+
+  // Rarely watched articles: suspicious edits stay online longer.
+  const lt = q.long_tail;
+  if (lt && Array.isArray(lt.buckets) && lt.buckets.length) {
+    blocks.push(section(
+      "Less watched articles keep suspicious edits longer",
+      el("div", { class: "table-scroll" }, el("table", { class: "q-table" },
+        el("caption", { class: "sr-only", text: "Suspicious edits by how often the article is edited" }),
+        el("thead", {}, el("tr", {}, ["Articles", "Suspicious edits", "Half online less than", "Online > 1 day", "Online > 30 days", "Still online"].map((h) => el("th", { scope: "col", text: h })))),
+        el("tbody", {}, lt.buckets.map((b) => el("tr", {},
+          el("th", { scope: "row", text: b.bucket }),
+          el("td", { text: fmt(b.suspicious_edits) }),
+          el("td", { text: durationText(b.median_days_online) }),
+          el("td", { text: pctOf(b.share_online_over_1_day) }),
+          el("td", { text: pctOf(b.share_online_over_30_days) }),
+          el("td", { text: fmt(b.still_online) })))))),
+      ...lt.buckets.filter((b) => b.sentences?.caveat).map((b) => el("p", { class: "meta", text: `${b.bucket}: ${b.sentences.caveat}` })),
+      lt.definition ? el("p", { class: "meta", text: lt.definition }) : null
+    ));
+  }
+
+  const ra = q.repeat_accounts;
+  if (ra && ra.sentences) {
+    blocks.push(section(
+      "Accounts that come back",
+      el("ul", { class: "plain" }, Object.values(ra.sentences).map((t) => el("li", { text: t }))),
+      ra.definition ? el("p", { class: "meta", text: ra.definition }) : null
+    ));
+  }
+
+  const to = q.time_online;
+  if (to && (to.sentence || typeof to.compared === "number")) {
+    blocks.push(section(
+      "How reliable the time online is",
+      el("p", { text: to.sentence || `Two methods agree within a day on ${to.agree_within_1_day} of ${to.compared} cases.` }),
+      typeof to.checked_by_hand === "number"
+        ? el("p", { class: "meta", text: `${to.checked_by_hand} cases were checked by hand, version by version. On published cases they carry the “Hand-checked” badge; the others say “Estimate”.` })
+        : null
+    ));
+  }
+
+  box.replaceChildren(...blocks);
 }
 
 // ---------- Lens: offer the bookmark ----------
@@ -932,17 +1454,20 @@ async function pageLens() {
     box.replaceChildren(el("p", { class: "empty", text: "The Lens is not built yet." }));
     return;
   }
+  const wiki = (title) => el("a", { href: `https://fi.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(" ", "_"))}`, target: "_blank", rel: "noopener", lang: "fi", text: title });
   const steps = el(
     "ol",
     { class: "lens-steps" },
-    el("li", {}, "Show your bookmarks bar: ", el("strong", { text: "Ctrl + Shift + B" }), " (Cmd + Shift + B on a Mac)."),
-    el("li", {}, "Drag the button below onto the bookmarks bar."),
-    // Most published cases were later undone on Wikipedia: the example is an article where one is still online.
-    el("li", {}, "Open a Finnish Wikipedia article, for example ",
-      el("a", { href: "https://fi.wikipedia.org/wiki/Vuosaari", target: "_blank", rel: "noopener", text: "Vuosaari" }),
-      ", and click the bookmark. Use the Show buttons in its panel to jump to each case. On an article where a case was later undone, the panel says so."),
+    el("li", {}, "Show your bookmarks bar (", el("strong", { text: "Ctrl + Shift + B" }), ", or Cmd + Shift + B on a Mac) and drag the button below onto it."),
+    el("li", {}, "Open a Finnish Wikipedia article, for example ", wiki("Suomen sisällissota"), " or ", wiki("Carl Gustaf Emil Mannerheim"),
+      ", and click the bookmark: the passages of TimeProof cases are outlined, and its panel lists them."),
     el("li", {}, "Click the bookmark again to turn the Lens off.")
   );
+  // The Lens can only outline what is still on today's page: say how many cases that is.
+  const stats = await optional("/api/stats");
+  const coverage = stats && typeof stats.published === "number"
+    ? `${info.cases} of ${stats.published} published cases can be shown on today's pages: the others were rewritten since, or are too short to find reliably. All of them are on this site.`
+    : `${info.cases} published case${info.cases === 1 ? "" : "s"} included.`;
   // A Lens built from sample data must never be offered on the deployed site.
   if (info.mock && !IS_LOCAL) {
     box.replaceChildren(el("p", { class: "empty", text: "The Lens will be available here once real cases are published." }));
@@ -958,7 +1483,8 @@ async function pageLens() {
     steps,
     el("div", { class: "lens-drag" }, button, el("span", { class: "meta", text: "← Drag me to your bookmarks bar" })),
     info.mock ? el("p", { class: "lens-mock", text: "This Lens is built from sample data: it shows placeholder cases, not real findings." }) : "",
-    el("p", { class: "meta", text: `${info.cases} published case${info.cases === 1 ? "" : "s"} included · built ${info.built}. No data is sent anywhere: the cases are stored inside the bookmark and TimeProof never edits Wikipedia.` })
+    el("p", { class: "lens-coverage", text: coverage }),
+    el("p", { class: "meta", text: `Built ${info.built}. No data is sent anywhere: the cases are stored inside the bookmark and TimeProof never edits Wikipedia.` })
   );
 }
 

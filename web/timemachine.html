@@ -10,20 +10,26 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap">
-  <link rel="stylesheet" href="tokens.css?v=16">
-  <link rel="stylesheet" href="style.css?v=16">
-  <script src="app.js?v=16" defer></script>
+  <link rel="stylesheet" href="tokens.css?v=17">
+  <link rel="stylesheet" href="style.css?v=17">
+  <script src="app.js?v=17" defer></script>
 </head>
 <body data-page="timemachine">
   <main>
     <h1>Time <span class="two-tone">machine</span></h1>
     <p class="lead">Read an article exactly as it stood on any date. Every version is stored in MariaDB with its real Wikipedia edit time.</p>
     <div class="controls">
-      <label>Article <select id="article"></select></label>
+      <div class="combo">
+        <label for="article-q">Article</label>
+        <input type="search" id="article-q" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="article-list" autocomplete="off" spellcheck="false" placeholder="Search an article, e.g. sisällissota">
+        <ul id="article-list" role="listbox" aria-label="Matching articles" hidden></ul>
+      </div>
       <label>Date <input type="date" id="as-of" min="2003-01-01" max="2026-10-01"></label>
       <button id="go" type="button">Show this date</button>
     </div>
+    <div id="popular" class="popular" aria-label="Most edited articles"></div>
     <section id="timeline"><p class="empty">Loading…</p></section>
+    <section id="terms" class="terms" hidden></section>
     <section id="article-text"></section>
   </main>
 </body>
