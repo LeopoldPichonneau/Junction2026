@@ -9,10 +9,10 @@
 
 | Qui | Rôle | En une phrase | Son dossier dans le dépôt |
 |---|---|---|---|
-| **Léopold** | **Serveur & base** | Le VPS, MariaDB avec tout l'historique, et l'API qui sert les données au site | `server/` (+ `docker-compose.yml`, `db/`) |
+| **Léopold** | **Serveur & base** | Le VPS, MariaDB avec tout l'historique, l'API qui sert les données au site, puis la **veille** (bonus après 17h) | `server/` (+ `docker-compose.yml`, `db/`) |
 | **Maël** | **Analyse** | Trouver les modifications suspectes (texte, images, sources) et les faire examiner par Nemotron | `analysis/` |
-| **Nathanaël** | **Décision & preuves** | Gemini décide et publie, score d'exposition, chiffre de fiabilité | `decision/` |
-| **Eléa** | **Site, Lens & pitch** | Le tableau de bord, la TimeProof Lens sur Wikipédia, le déploiement CRACI, la vidéo | `web/`, `lens/`, `.github/` |
+| **Nathanaël** | **Décision & preuves** | Gemini décide et publie, **profil des comptes** (bots, comptes jetables), score d'exposition, chiffre de fiabilité | `decision/` |
+| **Eléa** | **Site, Lens & pitch** | Le tableau de bord (avec le panneau **Detection quality**), la TimeProof Lens sur Wikipédia, le déploiement CRACI, la vidéo | `web/`, `lens/`, `.github/` |
 
 Pourquoi cette répartition :
 - **Léopold** est propriétaire du dépôt GitHub : il garde la branche `main` propre.
@@ -47,6 +47,7 @@ Pourquoi cette répartition :
    curl -L -o data/versions-01.parquet https://github.com/MariaDB/mariadb-wikipedia-datasets/releases/download/m-2026-10/versions-01.parquet
    ```
    Il contient 281 articles, dont l'article sur 1918 (`page_id` 1150). Tout le monde développe dessus ce matin.
+6. **Le challenge Hostinger (n'importe qui, ce matin)** : le formulaire n'a accepté qu'**un** challenge principal (MariaDB). Demandez à l'accueil ou aux mentors Hostinger si on peut **ajouter *Decode the Noise***. Sinon, on ne concourt pas pour Hostinger.
 
 ---
 
@@ -129,6 +130,17 @@ La même ligne, plus le rapport de Nemotron :
 - **Règle** : `flag` seulement si Nemotron (`suspicious`) **et** Gemini sont d'accord, sinon `human_review`.
 - `readers_est` vaut `null` avant juillet 2015.
 
+### 4.3 bis `accounts.jsonl` — écrit par Nathanaël (profil des comptes, pour Hostinger)
+Un compte par ligne, calculé **sans IA** à partir des fichiers de données (auteur, date, anonyme, annulations) :
+```json
+{"account_hash": "a3f9…", "kind": "bot_like", "declared_bot": false, "score": 0.82,
+ "reasons": ["38 edits in 2 h at regular intervals", "edits 6 sensitive articles only", "71% of edits reverted"],
+ "edits": 54, "articles": 6, "first_seen": "2024-03-02", "last_seen": "2024-03-09"}
+```
+- `kind` : `"declared_bot"` (robot officiel de Wikipédia, **bénin**), `"bot_like"`, `"throwaway"` (compte jetable), `"single_purpose"` (un seul thème), `"normal"`.
+- **Aucun nom de compte** dans ce fichier : on garde une empreinte (`account_hash`). Le vrai nom ne sert qu'à la file de relecture privée.
+- Maël s'en sert pour prioriser ses candidats ; le site en tire le panneau « Detection quality ».
+
 ### 4.4 La base et l'API — Léopold
 - Table `article` historisée (`WITH SYSTEM VERSIONING`), avec les vraies dates Wikipédia.
 - Léopold **importe** `analysis.jsonl` et `decisions.jsonl` dans la base et les sert au site.
@@ -142,6 +154,8 @@ La même ligne, plus le rapport de Nemotron :
 | `GET /api/cases/{rev_id}` | La fiche de preuves complète | Site |
 | `GET /api/lens?title=Suomen_sisällissota` | Les passages et images annotés d'un article | Lens |
 | `GET /api/stats` | Chiffres globaux | Site |
+| `GET /api/quality` | La fiabilité : taux sur la fausse campagne, fausses alertes relues, cas rétrogradés par la règle des deux avis, robots officiels écartés, comptes au profil suspect | Site (panneau Detection quality) |
+| `GET /api/cases?since=7d` | Les cas trouvés par la veille ces 7 derniers jours | Site (rubrique « New this week ») |
 
 L'API doit autoriser les appels depuis `fi.wikipedia.org` (CORS) pour la Lens.
 
@@ -175,6 +189,12 @@ GEMINI_MODEL=
    - **lancer le chargement de tout en fond**, par exemple `nohup … &`. Ça prend plusieurs heures. **C'est la tâche la plus urgente de la journée.**
 4. **(13h30–17h) L'API** (tableau 4.4), puis l'import des fichiers JSONL dans la base.
 5. **(17h–20h) Avec Eléa** : le déploiement CRACI. Créez une clé SSH pour CRACI et ajoutez-la au VPS ; ouvrez seulement le port web, **jamais 3306** (MariaDB).
+6. **(Bonus, seulement si le rendez-vous de 17h est vert) La veille** `server/watch.py` :
+   - **toutes les heures**, il demande à Wikipédia les nouvelles versions des **50 articles surveillés** (les plus sensibles) depuis la dernière version connue (API `action=query&prop=revisions`, User-Agent descriptif) ;
+   - **le premier passage** comble le trou depuis le 1er octobre 2026, date de fin des données ;
+   - **les nouvelles versions** entrent dans `article` par de **simples `UPDATE`** : MariaDB les date tout seul, l'historique devient « vivant » (bel argument pour le jury MariaDB) ;
+   - **elles passent ensuite** dans la même chaîne (tri de Maël → Nemotron → Gemini) et alimentent `GET /api/cases?since=7d` ;
+   - **pour le lancer** : une tâche `cron` sur le VPS, ou une tâche programmée CRACI (`on: schedule` dans un workflow) qui lance le script par SSH, ce qui donne à CRACI un rôle de plus.
 
 **Pièges** :
 - mettez `SET time_zone = '+00:00'` (Wikipédia est en UTC) ;
@@ -217,6 +237,14 @@ GEMINI_MODEL=
    - Appliquez **la règle des deux avis** (4.3).
    - Une réponse bizarre de Gemini donne `human_review`.
    - **Économie** : Gemini seulement sur les cas où Nemotron dit « suspect », plus un petit échantillon des autres.
+2 bis. **(12h) `decision/accounts.py`, le profil des comptes** (c'est notre réponse au mot « bots » du challenge Hostinger). À partir des fichiers de données, sans IA, pour chaque compte :
+   - **robot officiel** : le nom finit par « Bot » ou figure dans la liste des robots de Wikipédia finnoise → `declared_bot`, **bénin, écarté** (exemple vu vendredi : *ZacheBot*) ;
+   - **rythme de robot** : beaucoup de modifications en rafale, à intervalles très réguliers ;
+   - **compte jetable** : créé, actif quelques jours sur plusieurs articles sensibles, puis disparu ;
+   - **compte à sujet unique** : ne touche qu'un thème ;
+   - **taux d'annulation** : part de ses modifications défaites par d'autres comptes (même `sha1` qu'une version antérieure juste après lui).
+
+   Chaque compte suspect a des `reasons` lisibles. Résultat : `accounts.jsonl` (format 4.3 bis), à donner à Maël dès que possible.
 3. **(13h) `decision/exposure.py`** : pour chaque cas, calculer :
    - **la durée en ligne** : de la version suspecte jusqu'à la première version suivante où le contenu a disparu, ou `null` s'il est toujours là ;
    - **les lecteurs estimés** : somme des vues par jour sur cette période, avec l'API d'audience (`https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/fi.wikipedia/all-access/user/<Titre>/daily/<AAAAMMJJ>/<AAAAMMJJ>`). Utilisez le titre de l'époque. Pas de données avant juillet 2015.
@@ -236,9 +264,11 @@ GEMINI_MODEL=
 1. **(10h30) Le site avec de fausses données** dans `web/`. Une page simple en HTML/CSS/JS, sans framework si vous débutez. **En anglais**, avec :
    - **l'accueil** : les chiffres (`/api/stats`) et la liste des cas publiés, triés par impact ;
    - **la fiche d'un cas** : titre, résumé, image avec auteur et licence, ancienne/nouvelle légende, « online for N days, seen by ≈ X readers », liens vers Wikipédia (`https://fi.wikipedia.org/?oldid=<rev_id>`) ;
-   - **la machine à remonter le temps** : choisir une date → voir l'article à cette date, avec la frise des modifications.
+   - **la machine à remonter le temps** : choisir une date → voir l'article à cette date, avec la frise des modifications ;
+   - **le panneau « Detection quality »** (`/api/quality`) : **c'est ce que le jury Hostinger regarde en premier**. Il affiche le taux de détection de la fausse campagne, les fausses alertes relues, les cas rétrogradés par la règle des deux avis, les robots officiels écartés et les comptes au profil suspect, avec une phrase sur chaque chiffre ;
+   - **la rubrique « New this week »** (`/api/cases?since=7d`), seulement si la veille de Léopold tourne.
 
-   En attendant l'API de Léopold, lisez un fichier `web/mock/cases.json` au même format.
+   En attendant l'API de Léopold, lisez des fichiers `web/mock/cases.json` et `web/mock/quality.json` au même format.
 2. **(13h) La TimeProof Lens** dans `lens/` : un **favori JavaScript** (*bookmarklet*). Cliqué sur une page `fi.wikipedia.org`, il appelle `GET /api/lens?title=…` et **surligne** les passages et images concernés. Au survol, il affiche l'historique (« réécrit 7 fois depuis 2009 ») et un lien vers la fiche. On ne le fait que pour les articles de la démo.
 3. **(17h–20h) Avec Léopold** : le fichier `.github/workflows/deploy.yml` avec `runs-on: craci`. À chaque push sur `main`, CRACI vérifie et déploie sur le VPS. Branchez d'abord le dépôt à CRACI (platform.craci.com, avec le code d'invitation).
 4. **(21h–1h)** Finitions, puis préparation de la vidéo : plan des 2 minutes, captures d'écran.
@@ -265,7 +295,8 @@ GEMINI_MODEL=
 | Dimanche 6h–9h30 | Vidéo (≤ 2 min), textes de soumission, **soumettre avant 9h30** |
 | **Dimanche 10h30** | Relecture entre équipes : **présence obligatoire** |
 
-**Si on est en retard, on coupe dans cet ordre** : vue en transparence → coordination → Lens réduite à l'article 1150 → images réduites aux seules légendes.
+**Si on est en retard, on coupe dans cet ordre** : veille → vue en transparence → coordination → Lens réduite à l'article 1150 → images réduites aux seules légendes.
+**Le profil des comptes et le panneau Detection quality ne se coupent pas** : c'est notre dossier Hostinger.
 **On ne coupe jamais** : l'historique en ligne, l'analyse par Nemotron, la règle des deux avis, la fiche de cas avec l'exposition, le chiffre de fiabilité.
 
 ---

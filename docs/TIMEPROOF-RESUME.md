@@ -17,7 +17,9 @@ Données : 862 076 versions de 19 742 articles finnois sur l'histoire de la Finl
 | **Gemini** | Le **décideur** et l'éditeur : signaler ou non, publier ou non, résumé en anglais | Tech Gemini (4 000 €) |
 | **CRACI** | Remplace les **machines de GitHub Actions** : chaque push sur `main` est construit et déployé sur le VPS par CRACI (`runs-on: craci`). Le code reste hébergé sur GitHub. Bonus : afficher la liste des dépendances (SBOM) sur le site | Tech CRACI |
 
-**4 signaux** : dérive du vocabulaire · image ou légende trompeuse · sources retirées · campagne coordonnée (textes quasi identiques, sans GPU).
+**5 signaux** : dérive du vocabulaire · image ou légende trompeuse · sources retirées · campagne coordonnée (textes quasi identiques, sans GPU) · **profil des comptes** (rythme de robot, comptes jetables, sujet unique, taux d'annulation ; les robots officiels de Wikipédia sont écartés comme bénins).
+**La veille** (bonus) : toutes les heures, les nouvelles modifications de 50 articles sensibles passent dans la même chaîne → rubrique « New this week ».
+**Le panneau « Detection quality »** : fiabilité, fausses alertes, cas rétrogradés, robots écartés. C'est ce que le jury Hostinger regarde.
 **Le plus** : le **score d'exposition**, c'est-à-dire combien de jours la version trompeuse est restée en ligne et combien de lecteurs l'ont vue (≈, via l'API d'audience Wikimedia).
 **La TimeProof Lens** : un favori à cliquer sur la **vraie page Wikipédia**, qui surligne les passages et images réécrits, avec leur historique et leur exposition au survol. C'est le moment « waouh » de la démo (seulement pour les articles de la démo).
 **Garde-fous** : un cas n'est signalé que si les **2 IA sont d'accord**, sinon un humain tranche. **Aucun nom de compte en public.**
@@ -28,10 +30,10 @@ Données : 862 076 versions de 19 742 articles finnois sur l'histoire de la Finl
 
 | Personne | Module | Livre |
 |---|---|---|
-| **Léopold** | **Serveur & base** | VPS + MariaDB, chargement de l'historique, API, import des résultats, déploiement CRACI (avec Eléa) |
+| **Léopold** | **Serveur & base** | VPS + MariaDB, chargement de l'historique, API, import des résultats, déploiement CRACI (avec Eléa), **veille** (bonus) |
 | **Maël** | **Analyse** | Tri des modifications suspectes (texte, images, sources), appels Nemotron (texte + image), **les 2-3 cas de démo** |
-| **Nathanaël** | **Décision & preuves** | Gemini décideur + éditeur, garde-fou, score d'exposition, **chiffre de fiabilité** (fausse campagne étiquetée) |
-| **Eléa** | **Site, Lens & pitch** | Tableau de bord, fiche de cas, machine à remonter le temps, **TimeProof Lens**, déploiement CRACI, vidéo 2 min |
+| **Nathanaël** | **Décision & preuves** | Gemini décideur + éditeur, garde-fou, **profil des comptes**, score d'exposition, **chiffre de fiabilité** (fausse campagne étiquetée) |
+| **Eléa** | **Site, Lens & pitch** | Tableau de bord, panneau **Detection quality**, fiche de cas, machine à remonter le temps, **TimeProof Lens**, déploiement CRACI, vidéo 2 min |
 
 Détails, Git et contrat entre les morceaux : [TIMEPROOF-PLAN-SAMEDI.md](TIMEPROOF-PLAN-SAMEDI.md).
 
@@ -39,7 +41,7 @@ Détails, Git et contrat entre les morceaux : [TIMEPROOF-PLAN-SAMEDI.md](TIMEPRO
 
 **Adéquation aux challenges**
 - ✅ **MariaDB** : leurs données, leur fonction phare (l'historique), utilisée de façon créative (durée d'exposition, verdicts eux-mêmes historisés). Grille : la piste historique **seule** suffit (« RAG et/ou historique »).
-- ✅ **Hostinger** : détection de manipulation en ligne + honnêteté sur les fausses alertes, ce qu'ils demandent explicitement. ⚠️ Le formulaire semble n'accepter **qu'un** challenge principal.
+- ✅ **Hostinger** (« détecter propagande, bots et acteurs malveillants, en ligne sur Hostinger ») : propagande (dérive, images, sources), comportement coordonné, **bots et comptes suspects** (profil des comptes), service de **surveillance** (veille), honnêteté sur les fausses alertes (panneau Detection quality). ⚠️ Le formulaire n'a accepté **qu'un** challenge principal : demander à l'accueil si on peut ajouter *Decode the Noise*.
 - ✅ **NVIDIA** : usage texte **+ image**, qu'un modèle texte seul ne peut pas faire. ⚠️ Il faut joindre un texte expliquant comment on a amélioré ses réponses.
 - 🟡 **Gemini** : rôle réel (décider, publier) mais classique. Le soigner dans le pitch.
 
@@ -72,7 +74,7 @@ Détails, Git et contrat entre les morceaux : [TIMEPROOF-PLAN-SAMEDI.md](TIMEPRO
 | Dim 6h–9h30 | Vidéo 2 min, textes, **soumission avant 9h30** (limite 10h) |
 | **Dim 10h30** | **Relecture entre équipes : présence obligatoire** |
 
-**Si on est en retard, on coupe dans cet ordre** : badge SBOM CRACI (le déploiement CRACI, lui, reste) → vue en transparence (ancien texte sous le nouveau) → coordination → Lens réduite au seul article de 1918 → images réduites aux seules légendes.
+**Si on est en retard, on coupe dans cet ordre** : badge SBOM CRACI (le déploiement CRACI, lui, reste) → veille → vue en transparence (ancien texte sous le nouveau) → coordination → Lens réduite au seul article de 1918 → images réduites aux seules légendes.
 
 ## Attention à
 
