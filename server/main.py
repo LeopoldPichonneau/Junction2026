@@ -77,6 +77,13 @@ def stats():
             "published": int(pub["n"]), "readers_exposed_est": int(pub["readers"])}
 
 
+def shown_thumb(image: dict) -> str | None:
+    """Wikimedia images may only be shown with their author and licence: no credit, no picture."""
+    if image.get("author") and image.get("license"):
+        return image.get("thumb_url")
+    return None
+
+
 def case_summary(row: dict) -> dict:
     c, d = j(row["c_data"]), j(row["d_data"])
     image = c.get("image") or {}
@@ -87,7 +94,7 @@ def case_summary(row: dict) -> dict:
             "confidence": row["confidence"], "days_live": row["days_live"],
             "readers_est": row["readers_est"],
             "still_online": None if row["still_online"] is None else bool(row["still_online"]),
-            "image_thumb": image.get("thumb_url")}
+            "image_thumb": shown_thumb(image)}
 
 
 CASE_SELECT = ("SELECT c.rev_id, c.page_id, c.title, c.kind, c.edited_at, c.account_hash, "
@@ -132,7 +139,7 @@ def case(rev_id: int):
     out.update({
         "added": c.get("added"), "removed": c.get("removed"),
         "image": None if not image else {
-            "file": image.get("file"), "thumb_url": image.get("thumb_url"),
+            "file": image.get("file"), "thumb_url": shown_thumb(image),
             "caption_old": image.get("caption_old"), "caption_new": image.get("caption_new"),
             "author": image.get("author"), "license": image.get("license")},
         "investigator": None if not a else {
