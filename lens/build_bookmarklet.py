@@ -146,7 +146,7 @@ def main() -> int:
         f"<p><a href=\"{html.escape(bookmarklet, quote=True)}\" style=\"display:inline-block;background:#3687eb;color:#fff;"
         "font-weight:600;padding:10px 20px;border-radius:999px;text-decoration:none\">TimeProof Lens</a></p>\n"
         "<ol start=\"3\">\n<li>Open a Finnish Wikipedia article, for example "
-        "<a href=\"https://fi.wikipedia.org/wiki/Suomen_sis%C3%A4llissota\">Suomen sis&auml;llissota</a>, and click the bookmark.</li>\n"
+        "<a href=\"https://fi.wikipedia.org/wiki/Vuosaari\">Vuosaari</a>, and click the bookmark.</li>\n"
         "<li>Click it again to turn the Lens off.</li>\n</ol>\n"
         + ("<p style=\"background:#2b2d33;color:#ffd84d;padding:8px 12px;border-radius:6px;font-weight:600\">"
            "This build uses sample data: not real findings.</p>\n" if mock else "")

@@ -43,7 +43,12 @@
   };
   const fmt = (n) => n.toLocaleString("en-US");
   const readers = (r) => (r === null || r === undefined ? "no reader data (before Jul 2015)" : "\u2248 " + fmt(r) + " readers");
-  const exposure = (c) => (c.online ? "still online after " : "online for ") + Math.round(c.days) + " days" + DOT + readers(c.readers);
+  // Under a day, "0 days" would hide a short but real exposure: count hours instead.
+  const duration = (d) => {
+    if (d < 1) { const h = Math.max(1, Math.round(d * 24)); return h + (h === 1 ? " hour" : " hours"); }
+    const n = Math.round(d); return n + (n === 1 ? " day" : " days");
+  };
+  const exposure = (c) => (c.online ? "still online after " : "online for ") + duration(c.days) + DOT + readers(c.readers);
   const norm = (s) => s.replace(/\s+/g, " ").trim().toLowerCase();
   // File names: "Tiedosto:General_Strike_Helsinki_1917.jpg" -> "General strike helsinki 1917.jpg" style key.
   const fileKey = (s) => {
