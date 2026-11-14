@@ -25,6 +25,13 @@ from pydantic import BaseModel, Field
 
 from db import connect
 
+
+def public_account_id(account_hash: str) -> str:
+    """Same keyed code as main.py's Accounts page (ACCOUNT_ID_KEY), so a reviewer can find the account there."""
+    import hmac
+    key = os.environ.get("ACCOUNT_ID_KEY", "").encode()
+    return hmac.new(key, account_hash.encode(), "sha256").hexdigest()[:12] if key else "unavailable"
+
 router = APIRouter()
 LOG_FILE = Path(os.environ.get("DATA_DIR", "/data")) / "logs" / "watch.log"
 INTERVAL_MIN = int(os.environ.get("WATCH_INTERVAL_MIN", "10"))
@@ -180,7 +187,8 @@ def review_next(peek: bool = False, x_internal_token: str | None = Header(None))
                 "rev_id": rev, "article": row["title"], "edited_at": row["edited_at"].strftime("%Y-%m-%d %H:%M UTC"),
                 "source": c.get("source") or "dataset", "detected_at": c.get("detected_at"),
                 "kind": row["kind"],
-                "account_hash": row["account_hash"],            # never an account name
+                # The keyed code of the Accounts page, never the raw hash (sha256 of the name, reversible by guessing).
+                "account_id": public_account_id(row["account_hash"]) if row["account_hash"] else None,
                 "added_fi": c.get("added"), "removed_fi": c.get("removed"),
                 "sources_removed": c.get("refs_removed") or 0,
                 "image_change": None if not image else {k: image.get(k) for k in ("change", "file", "caption_old", "caption_new")},
