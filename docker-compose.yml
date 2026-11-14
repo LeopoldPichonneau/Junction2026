@@ -27,8 +27,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Direct access: 8000 locally; 8080 on the VPS, where Hostinger's Traefik already holds 80/443.
     ports:
       - "${APP_PORT}:8000"
+    # On the VPS, Traefik (Hostinger's reverse proxy) serves https://${PUBLIC_HOST} with a
+    # Let's Encrypt certificate. Locally there is no Traefik and these labels do nothing.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.timeproof.entrypoints=websecure"
+      - "traefik.http.routers.timeproof.rule=Host(`${PUBLIC_HOST:-timeproof.localhost}`)"
+      - "traefik.http.routers.timeproof.tls.certresolver=letsencrypt"
+      - "traefik.http.services.timeproof.loadbalancer.server.port=8000"
     volumes:
       - ./web:/app/web:ro
       - ./data:/data
