@@ -1,0 +1,12 @@
+{"rev_id": 21877001, "page_id": 1150, "title": "Suomen sisällissota", "date": "2024-05-11", "signal_type": "framing",
+ "headline_en": "[MOCK] The war's name switched in the lead paragraph",
+ "summary_en": "[MOCK] Placeholder summary. One name for the 1918 war was replaced by another in the opening sentence.",
+ "confidence": 0.7,
+ "added": "[MOCK] vapaussota", "removed": "[MOCK] sisällissota",
+ "image": null,
+ "investigator": {"model": "nemotron-3.5-super-vl", "report": "[MOCK] Placeholder investigator report.", "signals": ["one-sided renaming"], "image_findings": null},
+ "decider": {"model": "gemini-flash", "decision": "flag", "explanation": "[MOCK] Placeholder decider explanation."},
+ "exposure": {"live_from": "2024-05-11", "live_until": null, "days_live": 921, "readers_est": 23500, "still_online": true},
+ "account": {"kind": "single_purpose", "reasons": ["[MOCK] 14 edits, all on 2 articles about 1918"]},
+ "links": {"version": "https://fi.wikipedia.org/?oldid=21877001",
+           "diff": "https://fi.wikipedia.org/w/index.php?diff=prev&oldid=21877001"}}
