@@ -42,10 +42,12 @@
     return n;
   };
   const fmt = (n) => n.toLocaleString("en-US");
-  const readers = (r) => (r === null || r === undefined ? "no reader data (before Jul 2015)" : "\u2248 " + fmt(r) + " readers");
-  // Under a day, "0 days" would hide a short but real exposure: count hours instead.
+  const readers = (r) => (r === null || r === undefined ? "readers unknown (before Jul 2015)" : "\u2248 " + fmt(r) + " readers");
+  // Same wording as the site: minutes under an hour, hours and minutes under a day.
   const duration = (d) => {
-    if (d < 1) { const h = Math.max(1, Math.round(d * 24)); return h + (h === 1 ? " hour" : " hours"); }
+    const m = Math.round(d * 1440);
+    if (m < 60) return Math.max(1, m) + " min";
+    if (d < 1) return Math.floor(m / 60) + " h" + (m % 60 ? " " + (m % 60) + " min" : "");
     const n = Math.round(d); return n + (n === 1 ? " day" : " days");
   };
   const exposure = (c) => (c.online ? "still online after " : "online for ") + duration(c.days) + DOT + readers(c.readers);
