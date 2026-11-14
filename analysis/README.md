@@ -11,6 +11,7 @@ puis les faire examiner par Nemotron. Tout se lance **depuis la racine du dépô
 | 1 | `python analysis/find_candidates.py data/versions-01.parquet` | parquet | `candidates.jsonl` (format 4.1) | ≈ 4-5 min |
 | 2 | `python analysis/fetch_images.py` | `candidates.jsonl` | `images.jsonl` + remplit `thumb_url`, `author`, `license` dans `candidates.jsonl` | ≈ 1 min |
 | 3 | `python analysis/run_nemotron.py --limit 10` | `candidates.jsonl` | `analysis.jsonl` (format 4.2) | 1-3 s par cas |
+| 4 | `python analysis/insights.py data/versions-01.parquet` | `analysis.jsonl` + parquet | `insights.json` (durée en ligne selon l'attention portée à l'article, comptes récidivistes, comptes neufs, robots écartés) + `case-durations.jsonl` (un cas suspect par ligne) | ≈ 3-5 min |
 | — | `python analysis/check_nemotron.py` | `.env` | rien : dit si le serveur Nemotron répond | < 10 min |
 
 - Plusieurs fichiers d'un coup : `python analysis/find_candidates.py data/versions-01.parquet data/versions-02.parquet …`
