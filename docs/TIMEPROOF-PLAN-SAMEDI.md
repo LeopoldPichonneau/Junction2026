@@ -2,6 +2,7 @@
 
 > Samedi 14/11 · départ 10h (1 h de retard) · heure d'Helsinki · table A6
 > À lire en entier par les 4 avant de commencer. Gardez [TIMEPROOF-RESUME.md](TIMEPROOF-RESUME.md) à côté.
+> **Détails techniques** (pile, schéma SQL, colonnes des données, exemples d'appels, algorithmes, formats de l'API, pièges) : [TECH.md](TECH.md). **Règles pour tous et pour les assistants IA** : [AI-RULES.md](AI-RULES.md).
 
 ---
 
@@ -20,7 +21,7 @@ Pourquoi cette répartition :
 - **Nathanaël** a une partie indépendante qu'il peut développer sur des exemples.
 - **Eléa** a la partie la plus visible, celle que le jury verra.
 
-**Tout le monde code avec une IA** (Claude Code, Codex…). Donnez-lui cette fiche et la section 4 (le contrat), et demandez-lui une petite étape à la fois.
+**Tout le monde code avec un assistant IA.** Faites-lui lire [AI-RULES.md](AI-RULES.md), cette fiche et [TECH.md](TECH.md), et demandez-lui une petite étape à la fois.
 
 ---
 
@@ -41,6 +42,12 @@ Pourquoi cette répartition :
    - Maël envoie la clé Verda/Nemotron à qui en a besoin.
    - Nathanaël crée sa clé Gemini sur [aistudio.google.com](https://aistudio.google.com) (avec les 50 $ de crédits).
    - Léopold garde le code CRACI et l'accès au VPS.
+4 bis. **L'environnement Python** (chacun, dans le dossier du dépôt ; `pip` seul ne marche pas toujours sous Windows) :
+   ```bash
+   python -m venv .venv
+   source .venv/Scripts/activate        # Git Bash sous Windows ; sur Mac/Linux : source .venv/bin/activate
+   python -m pip install pyarrow httpx PyMySQL fastapi uvicorn
+   ```
 5. **Les données de test** (chacun) : télécharger le premier des 16 fichiers (20 Mo) dans un dossier `data/` du dépôt.
    ```bash
    mkdir data
@@ -105,7 +112,7 @@ Pour ne pas s'attendre, on s'échange des **fichiers JSONL** (un objet JSON par 
 Une modification qui mérite d'être examinée :
 ```json
 {"rev_id": 23498098, "page_id": 1150, "title": "Suomen sisällissota", "timestamp": "2025-08-17T10:28:50Z",
- "kind": "image", "user_is_new": true, "comment": "…",
+ "kind": "image", "account_hash": "a3f9c2…", "user_is_new": true, "synthetic": false, "comment": "…",
  "added": "mots ajoutés", "removed": "mots retirés",
  "image": {"change": "recaptioned", "file": "Jaakarit_vaasan_torilla.jpg",
            "caption_old": "…", "caption_new": "…", "thumb_url": "https://…"},
@@ -143,7 +150,7 @@ Un compte par ligne, calculé **sans IA** à partir des fichiers de données (au
 
 ### 4.4 La base et l'API — Léopold
 - Table `article` historisée (`WITH SYSTEM VERSIONING`), avec les vraies dates Wikipédia.
-- Léopold **importe** `analysis.jsonl` et `decisions.jsonl` dans la base et les sert au site.
+- Léopold **importe** `candidates.jsonl`, `analysis.jsonl`, `decisions.jsonl` et `accounts.jsonl` dans la base (tables : [TECH.md, section 4](TECH.md#4-schéma-de-la-base)), et sert `quality.json` tel quel.
 
 | Adresse | Ce qu'elle renvoie | Utilisée par |
 |---|---|---|
@@ -152,23 +159,14 @@ Un compte par ligne, calculé **sans IA** à partir des fichiers de données (au
 | `GET /api/articles/{page_id}/timeline` | Nombre de modifications par mois | Site (frise) |
 | `GET /api/cases` | Les cas publiés, triés par impact, **sans nom de compte** | Site (tableau de bord) |
 | `GET /api/cases/{rev_id}` | La fiche de preuves complète | Site |
-| `GET /api/lens?title=Suomen_sisällissota` | Les passages et images annotés d'un article | Lens |
 | `GET /api/stats` | Chiffres globaux | Site |
 | `GET /api/quality` | La fiabilité : taux sur la fausse campagne, fausses alertes relues, cas rétrogradés par la règle des deux avis, robots officiels écartés, comptes au profil suspect | Site (panneau Detection quality) |
 | `GET /api/cases?since=7d` | Les cas trouvés par la veille ces 7 derniers jours | Site (rubrique « New this week ») |
 
-L'API doit autoriser les appels depuis `fi.wikipedia.org` (CORS) pour la Lens.
+Les formats exacts de chaque réponse sont dans [TECH.md, section 11](TECH.md#11-lapi-du-site--formats-de-réponse-léopold--eléa). La Lens n'appelle **pas** l'API (voir 5, Eléa).
 
 ### 4.5 Le fichier `.env` (jamais committé, un `.env.example` sans valeurs est committé)
-```
-DB_PASSWORD=
-VERDA_INFERENCE_KEY=
-NEMOTRON_BASE_URL=https://containers.datacrunch.io/nemotron-3-5-super-vl-b300/v1
-NEMOTRON_MODEL=nemotron-3.5-super-vl
-GEMINI_API_KEY=
-GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-GEMINI_MODEL=
-```
+La liste complète des variables, avec les adresses déjà testées, est dans [TECH.md, section 2](TECH.md#2-variables-denvironnement).
 
 ---
 
@@ -269,7 +267,9 @@ GEMINI_MODEL=
    - **la rubrique « New this week »** (`/api/cases?since=7d`), seulement si la veille de Léopold tourne.
 
    En attendant l'API de Léopold, lisez des fichiers `web/mock/cases.json` et `web/mock/quality.json` au même format.
-2. **(13h) La TimeProof Lens** dans `lens/` : un **favori JavaScript** (*bookmarklet*). Cliqué sur une page `fi.wikipedia.org`, il appelle `GET /api/lens?title=…` et **surligne** les passages et images concernés. Au survol, il affiche l'historique (« réécrit 7 fois depuis 2009 ») et un lien vers la fiche. On ne le fait que pour les articles de la démo.
+2. **(13h) La TimeProof Lens** dans `lens/` : un **favori JavaScript** (*bookmarklet*). Cliqué sur une page `fi.wikipedia.org`, il **surligne** les passages et images concernés. Au survol, il affiche l'historique (« réécrit 7 fois depuis 2009 ») et un lien vers la fiche.
+   - **Les données sont intégrées dans le favori, sans aucun appel à notre serveur** : Wikipédia est en HTTPS et notre VPS en HTTP, donc le navigateur bloquerait l'appel.
+   - On ne le fait que pour les 2-3 articles de la démo. Méthode : [TECH.md, section 12](TECH.md#12-la-lens-eléa).
 3. **(17h–20h) Avec Léopold** : le fichier `.github/workflows/deploy.yml` avec `runs-on: craci`. À chaque push sur `main`, CRACI vérifie et déploie sur le VPS. Branchez d'abord le dépôt à CRACI (platform.craci.com, avec le code d'invitation).
 4. **(21h–1h)** Finitions, puis préparation de la vidéo : plan des 2 minutes, captures d'écran.
 
