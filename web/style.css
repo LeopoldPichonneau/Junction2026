@@ -449,3 +449,16 @@ main { min-height: 100vh; }
   #case-filters { min-height: 496px; }
   #timeline { min-height: 670px; }
 }
+
+/* Phones and tablets: the top bar is drawn by app.js after the first paint. A fixed bar over a
+   reserved strip means the page never jumps when it appears. */
+@media (max-width: 900px) {
+  header.site { position: fixed; top: 0; left: 0; right: 0; height: 70px; }
+  header.site .inner { height: 100%; }
+  body { padding-top: 70px; }
+}
+@media (max-width: 600px) {
+  header.site { height: 84px; }
+  body { padding-top: 84px; }
+}
+@media print { body { padding-top: 0; } }
