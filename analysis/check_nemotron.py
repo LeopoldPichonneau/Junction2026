@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from env import load_env, nemotron_config
+from env import load_env, nemotron_config, use_mock
 
 
 def step(name: str, fn) -> bool:
@@ -33,6 +33,9 @@ def step(name: str, fn) -> bool:
 
 def main() -> None:
     load_env()
+    # This tool exists to reach the real server: in mock mode there is nothing to check, so say so.
+    if use_mock():
+        raise SystemExit("USE_MOCK=true: no request sent. Set USE_MOCK=false in .env to check the real server.")
     config = nemotron_config()
     if not config["key"]:
         raise SystemExit(f"{config['key_name']} is missing from .env")
