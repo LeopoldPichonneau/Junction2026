@@ -15,6 +15,8 @@
     {"rev_id": 6590468, "note": "Himanka, passage on discrimination removed; still absent",
      "ended_by_rev_id": null, "checked": {"from": "2009-04-18", "until": null}},
     {"rev_id": 24234965, "note": "Suomen sisällissota, Sisällissota -> Vapaussota",
-     "ended_by_rev_id": 24234990, "checked": {"from": "2026-09-12T12:41", "until": "2026-09-12T12:48"}}
+     "ended_by_rev_id": 24234990, "checked": {"from": "2026-09-12T12:41", "until": "2026-09-12T12:48"}},
+    {"rev_id": 9039218, "note": "Vuosaari, caption about immigrants; the picture stayed, the caption was rewritten",
+     "ended_by_rev_id": 10248292, "checked": {"from": "2010-09-12T14:50", "until": "2011-05-31T18:11"}}
   ]
 }

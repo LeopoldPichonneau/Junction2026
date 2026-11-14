@@ -168,10 +168,13 @@ def make_check(case: dict, before, at_edit):
             return lambda now: now is MISSING
         if at_edit is MISSING:  # e.g. an image inside an infobox, which our parser does not see
             return None
-        if image.get("change") == "recaptioned":
-            caption = norm_caption(at_edit)
+        caption = norm_caption(at_edit)
+        # A caption is part of what the case reports. When the new picture came with one, a later
+        # rewrite of that caption ends the case even if the picture itself stays (Vuosaari, rev
+        # 9039218: the picture is still there, the sentence about immigrants was gone after 261 days).
+        if image.get("change") == "recaptioned" or caption:
             return lambda now: now is not MISSING and norm_caption(now) == caption
-        return lambda now: now is not MISSING  # added / swapped: the new file is still shown
+        return lambda now: now is not MISSING  # added / swapped without a caption: the new file is still shown
     if kind == "sources":
         if before is None or at_edit >= before:
             return None
