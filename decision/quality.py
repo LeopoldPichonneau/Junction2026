@@ -111,12 +111,26 @@ def review_sheet(n: int = 20) -> None:
         raise SystemExit("No real 'flag' decisions yet (decisions.jsonl). Come back after decide.py.")
     # Deterministic pick, so two teammates get the same 20 cases.
     flags.sort(key=lambda d: hashlib.sha256(str(d["rev_id"]).encode()).hexdigest())
+    cases = {c["rev_id"]: c for c in read_jsonl(config.EXCHANGE / "analysis.jsonl")}
+
+    def cut(text, size=400):
+        text = " ".join((text or "").split())
+        return text if len(text) <= size else text[:size] + " […]"
+
     REVIEW_SHEET.parent.mkdir(parents=True, exist_ok=True)
-    with REVIEW_SHEET.open("w", encoding="utf-8", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["rev_id", "title", "headline_en", "diff_link", "correct (yes/no)", "note"])
-        for d in flags[:n]:
-            w.writerow([d["rev_id"], d.get("title"), d.get("headline_en"),
+    # ";" and a BOM: French Excel then opens it in columns, with the Finnish accents right.
+    with REVIEW_SHEET.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.writer(f, delimiter=";")
+        w.writerow(["n", "rev_id", "article", "type", "titre (Gemini)", "résumé (Gemini)", "avis Nemotron",
+                    "texte ajouté (finnois)", "texte retiré (finnois)", "légende avant", "légende après",
+                    "lien diff", "correct (yes/no)", "note"])
+        for i, d in enumerate(flags[:n], 1):
+            c = cases.get(d["rev_id"], {})
+            img = c.get("image") or {}
+            w.writerow([i, d["rev_id"], d.get("title"), d.get("kind"), d.get("headline_en"),
+                        cut(d.get("summary_en"), 600), cut((c.get("nemotron") or {}).get("report"), 600),
+                        cut(c.get("added")), cut(c.get("removed")),
+                        cut(img.get("caption_old"), 200), cut(img.get("caption_new"), 200),
                         f"https://fi.wikipedia.org/w/index.php?diff=prev&oldid={d['rev_id']}", "", ""])
     print(f"Wrote {min(n, len(flags))} cases to {REVIEW_SHEET}. Open each diff link, fill "
           "'correct' with yes or no, then run: python decision/quality.py report")
