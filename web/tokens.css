@@ -1,6 +1,8 @@
 /* TimeProof design tokens. Full rationale in identity.md. Load before style.css. */
 
 :root {
+  /* Tells the browser which theme its own controls must follow (date picker icon, scrollbars). */
+  color-scheme: light;
   /* Colour: white pages, ultramarine for brand and structure, red only for evidence */
   --bg: #ffffff;
   --surface: #ffffff;
@@ -61,6 +63,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #121317;
     --surface: #1a1b21;
     --surface-2: #1d1f26;
@@ -93,6 +96,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #121317;
   --surface: #1a1b21;
   --surface-2: #1d1f26;

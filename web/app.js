@@ -855,7 +855,9 @@ async function pageCase() {
         { class: "meta" },
         `From ${dateTimeText(ex.live_from)} to ${ex.still_online ? "today (still online)" : dateTimeText(ex.live_until)}. ` +
           (ex.verified ? "Dates checked by hand. " : "Dates computed from the edit history (estimate). ") +
-          "Readers are an upper bound: daily views of the whole article over that period."
+          (typeof ex.readers_est === "number"
+            ? "Readers are an upper bound: daily views of the whole article over that period."
+            : "Readers unknown: Wikipedia publishes page views only from July 2015.")
       )
     ),
 
@@ -1198,11 +1200,14 @@ function articleSearch(input, list, onChoose) {
   const show = (found, query) => {
     items = found;
     if (!found.length) {
-      list.replaceChildren(el("li", { class: "combo-empty", role: "option", "aria-disabled": "true", id: "article-none", text: `No article title contains “${query}”.` }));
+      list.replaceChildren(el("li", { class: "combo-empty", role: "option", "aria-disabled": "true", id: "article-none", text: `No article title contains “${query}”, in Finnish or in English.` }));
     } else {
       list.replaceChildren(...found.map((a, i) => {
         const li = el("li", { role: "option", id: `article-opt-${i}`, "aria-selected": "false" },
-          el("span", { lang: "fi", text: a.title }), el("span", { class: "combo-count", text: `${fmt(a.versions)} versions` }));
+          // The English title is the one of the linked English Wikipedia article, when there is one.
+          el("span", {}, el("span", { lang: "fi", text: a.title }),
+            a.title_en && a.title_en !== a.title ? el("span", { class: "combo-en", lang: "en", text: a.title_en }) : null),
+          el("span", { class: "combo-count", text: `${fmt(a.versions)} versions` }));
         // mousedown, not click: it fires before the input loses focus.
         li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(a); });
         return li;
@@ -1224,7 +1229,7 @@ function articleSearch(input, list, onChoose) {
     // The local sample files ignore ?q=, so filter them here. The real API already matched
     // (ignoring accents too: "sisallis" finds "sisällissota"), so its answer is kept as is.
     const low = query.toLowerCase();
-    show(usingMock ? found.filter((a) => a.title.toLowerCase().includes(low)).slice(0, 20) : found, query);
+    show(usingMock ? found.filter((a) => `${a.title} ${a.title_en || ""}`.toLowerCase().includes(low)).slice(0, 20) : found, query);
   }
 
   input.addEventListener("input", () => {
@@ -1252,6 +1257,7 @@ async function pageTimeMachine() {
   const dateInput = document.getElementById("as-of");
   const goBtn = document.getElementById("go");
   const timelineBox = document.getElementById("timeline");
+  const termsBox = document.getElementById("terms");
   const textBox = document.getElementById("article-text");
 
   // Most edited articles, as one-click shortcuts.
@@ -1263,7 +1269,8 @@ async function pageTimeMachine() {
     return;
   }
 
-  let pageId = /^\d+$/.test(params.get("page_id") || "") ? params.get("page_id") : String(popular[0]?.page_id || "");
+  // No article is opened by default: the reader chooses one (a link can carry ?page_id=).
+  let pageId = /^\d+$/.test(params.get("page_id") || "") ? params.get("page_id") : "";
   // A link from a case carries the exact second of the edit (as_of=2019-09-27T21:53:44Z);
   // the date field only holds a day, so that exact time is used until the date is changed.
   let exactAsOf = /T/.test(params.get("as_of") || "") ? params.get("as_of") : null;
@@ -1276,6 +1283,7 @@ async function pageTimeMachine() {
     try {
       const a = await api(`/api/articles/${pageId}?as_of=${encodeURIComponent(asOf)}`);
       input.value = a.title;
+      const wikiVersion = `https://fi.wikipedia.org/w/index.php?oldid=${a.rev_id}`;
       textBox.replaceChildren(
         el("h2", { lang: "fi", text: a.title }),
         el(
@@ -1283,6 +1291,18 @@ async function pageTimeMachine() {
           { class: "meta" },
           `As of ${formatDate(asOf)}${asOf.includes("T") ? `, ${asOf.slice(11, 16)} UTC` : ""}: version saved on ${formatDate(a.saved_at)} · `,
           el("a", { href: `https://fi.wikipedia.org/?oldid=${a.rev_id}`, target: "_blank", rel: "noopener", text: "open on Wikipedia" })
+        ),
+        // The text is Finnish. English is one click away, and labelled for what it is.
+        el(
+          "p",
+          { class: "meta in-english" },
+          el("strong", { text: "In English:" }),
+          el("a", { href: `https://translate.google.com/translate?sl=fi&tl=en&u=${encodeURIComponent(wikiVersion)}`, target: "_blank", rel: "noopener", text: "this exact version, machine-translated by Google Translate" }),
+          a.title_en
+            ? el("span", {}, "or the English Wikipedia article ",
+                el("a", { href: `https://en.wikipedia.org/wiki/${encodeURIComponent(a.title_en.replaceAll(" ", "_"))}`, target: "_blank", rel: "noopener", lang: "en", text: a.title_en }),
+                " (written separately: not a translation)")
+            : null
         ),
         el("div", { class: "card article-text", lang: "fi", text: a.text || "" })
       );
@@ -1316,17 +1336,34 @@ async function pageTimeMachine() {
     }
   }
 
-  function open(id) {
+  // "How Wikipedia names the 1918 war" belongs to the article it was measured on (the article
+  // about that war): it is not shown under any other article.
+  const termsAsked = optional("/api/terms");
+  let termsDrawn = false;
+  async function showTerms() {
+    const terms = await termsAsked;
+    const here = terms && terms.article && String(terms.article.page_id) === String(pageId);
+    if (here && !termsDrawn) {
+      renderTerms(termsBox, terms);
+      termsDrawn = true;
+    }
+    termsBox.hidden = !here;
+  }
+
+  async function open(id) {
     pageId = String(id);
     popularBox.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === pageId)));
-    loadTimeline();
-    loadText();
+    // The chart and the 1918 names are drawn before the text arrives, so nothing jumps under the reader's eyes.
+    await loadTimeline();
+    await showTerms();
+    await loadText();
   }
 
   popularBox.replaceChildren(
     el("span", { class: "label-small", text: "Popular" }),
     ...popular.map((a) => {
-      const b = el("button", { type: "button", class: "pill secondary", "data-id": a.page_id, "aria-pressed": String(String(a.page_id) === pageId), lang: "fi", text: a.title });
+      const b = el("button", { type: "button", class: "pill secondary", "data-id": a.page_id, "aria-pressed": String(String(a.page_id) === pageId), lang: "fi", text: a.title,
+        title: a.title_en && a.title_en !== a.title ? `In English: ${a.title_en}` : null });
       b.addEventListener("click", () => open(a.page_id));
       return b;
     })
@@ -1334,13 +1371,13 @@ async function pageTimeMachine() {
   articleSearch(input, list, (a) => open(a.page_id));
   goBtn.addEventListener("click", () => { exactAsOf = null; loadText(); });
   dateInput.addEventListener("change", () => { exactAsOf = null; });
-  // Optional: stays hidden until the term file exists on the server. Drawn before the article
-  // text arrives, so nothing jumps under the reader's eyes.
-  const termsAsked = optional("/api/terms");
-  await loadTimeline();
-  const terms = await termsAsked;
-  if (terms && Object.keys(terms).length) renderTerms(document.getElementById("terms"), terms);
-  await loadText();
+
+  if (pageId) {
+    await open(pageId);
+  } else {
+    timelineBox.removeAttribute("aria-busy");
+    timelineBox.replaceChildren(el("p", { class: "empty tm-empty", text: "Search an article above, in Finnish or in English, or pick one of the most edited ones." }));
+  }
 }
 
 // ---------- Detection quality ----------
@@ -1461,7 +1498,7 @@ async function pageQuality() {
       "Less watched articles keep suspicious edits longer",
       el("div", { class: "table-scroll" }, el("table", { class: "q-table" },
         el("caption", { class: "sr-only", text: "Suspicious edits by how often the article is edited" }),
-        el("thead", {}, el("tr", {}, ["Articles", "Suspicious edits", "Half online less than", "Online > 1 day", "Online > 30 days", "Still online"].map((h) => el("th", { scope: "col", text: h })))),
+        el("thead", {}, el("tr", {}, ["Articles", "Suspicious edits", "Half were removed within", "Online > 1 day", "Online > 30 days", "Still online"].map((h) => el("th", { scope: "col", text: h })))),
         el("tbody", {}, lt.buckets.map((b) => el("tr", {},
           el("th", { scope: "row", text: b.bucket }),
           el("td", { text: fmt(b.suspicious_edits) }),

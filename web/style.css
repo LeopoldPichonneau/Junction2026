@@ -262,6 +262,11 @@ ul.plain li { margin-bottom: 4px; }
 .combo li[aria-selected="true"] { outline: 2px solid var(--focus); outline-offset: -2px; }
 .combo .combo-count { color: var(--text-2); font-size: var(--fs-small); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .combo .combo-empty { color: var(--text-2); cursor: default; }
+.combo .combo-en { display: block; font-size: var(--fs-small); color: var(--text-2); }
+/* Nothing chosen yet: no need to keep the room of a chart. */
+#timeline:has(.tm-empty) { min-height: 0; }
+.tm-empty { margin: 0 0 24px; }
+.in-english { margin: 0 0 12px; }
 .popular { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -8px 0 24px; }
 .popular .label-small { margin: 0 4px 0 0; }
 .tm-log { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--text-2); margin: 0 0 12px; cursor: pointer; min-height: 24px; }
