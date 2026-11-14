@@ -150,26 +150,33 @@ def report() -> None:
     if acc.get("mock"):
         acc = {}
 
-    quality = {
-        "synthetic_campaign": {
-            "planted": len(planted) or None,
-            "examined": len(synth) or None,
-            "seen_as_suspicious_by_nemotron": sum(d.get("nemotron_suspicious") is True for d in synth) if synth else None,
-            "caught": sum(d.get("decision") == "flag" for d in synth) if synth else None,
-            "sent_to_human_review": sum(d.get("decision") == "human_review" for d in synth) if synth else None,
-        },
-        "manual_review": {"reviewed": reviewed or None, "correct": correct if reviewed else None},
+    # web/app.js shows every top-level block it knows and every unknown top-level number or
+    # string as a card: so a block appears only once it is measured (never "null / 13"), and
+    # bookkeeping lives under "details" (an object, which the page ignores).
+    quality: dict = {}
+    if synth:
+        quality["synthetic_campaign"] = {
+            "planted": len(planted) or len(synth),
+            "caught": sum(d.get("decision") == "flag" for d in synth),
+        }
+    if reviewed:
+        quality["manual_review"] = {"reviewed": reviewed, "correct": correct}
+    quality["downgraded_by_two_model_rule"] = sum(bool(d.get("disagreement")) for d in real)
+    for key in ("declared_bots_excluded", "suspicious_accounts"):
+        if isinstance(acc.get(key), int):
+            quality[key] = acc[key]
+    quality["notes"] = {
+        "synthetic_campaign": f"{len(planted) or len(synth)} fake edits planted and labelled as synthetic, "
+                              "run through the same pipeline, never shown publicly.",
+        "manual_review": "Flagged cases checked by hand by the team against the Wikipedia diff.",
+        "downgraded_by_two_model_rule": "One model saw manipulation, the other did not: sent to a human instead of published.",
+    }
+    quality["details"] = {
+        "synthetic_examined": len(synth),
+        "synthetic_seen_as_suspicious_by_nemotron": sum(d.get("nemotron_suspicious") is True for d in synth),
+        "synthetic_sent_to_human_review": sum(d.get("decision") == "human_review" for d in synth),
         "decisions": {k: sum(d.get("decision") == k for d in real) for k in ("flag", "human_review", "dismiss")},
         "published": sum(bool(d.get("publish")) for d in real),
-        "downgraded_by_two_model_rule": sum(bool(d.get("disagreement")) for d in real),
-        "declared_bots_excluded": acc.get("declared_bots_excluded"),
-        "suspicious_accounts": acc.get("suspicious_accounts"),
-        "notes": {
-            "synthetic_campaign": f"{len(planted)} fake edits planted and labelled as synthetic, "
-                                  "run through the same pipeline, never shown publicly",
-            "manual_review": "flagged cases checked by hand by the team against the Wikipedia diff",
-            "downgraded_by_two_model_rule": "one model saw manipulation, the other did not: sent to a human instead of published",
-        },
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     out = config.EXCHANGE / "quality.json"
