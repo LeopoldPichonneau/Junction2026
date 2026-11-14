@@ -123,6 +123,15 @@ def visual_evidence(rev_id: int, image: dict) -> dict | None:
     return out if out["compare"] or out["archive"] else None
 
 
+def english_titles() -> dict:
+    """{page_id: title of the English Wikipedia article} (data/exchange/titles-en.jsonl, written by
+    analysis/english_titles.py from Wikipedia's own language links: never machine-translated)."""
+    def parse(text):
+        rows = (json.loads(l) for l in text.splitlines() if l.strip())
+        return {int(r["page_id"]): r["title_en"] for r in rows if r.get("title_en")}
+    return read_cached(DATA_DIR / "exchange" / "titles-en.jsonl", parse) or {}
+
+
 def translations() -> dict:
     """{rev_id: before/after in Finnish and English}, only for the hand-translated demo cases."""
     def parse(text):
@@ -366,22 +375,30 @@ def terms():
 
 
 @app.get("/api/articles")
-def articles(q: str | None = Query(None, max_length=100, description="part of the title"),
+def articles(q: str | None = Query(None, max_length=100, description="part of the Finnish or English title"),
              limit: int | None = Query(None, ge=1, le=100)):
-    """Without parameters: every article (the current site builds its list from it).
-    With q and/or limit: the most edited matches only, 20 by default."""
+    """Without parameters: every article. With q and/or limit: the most edited matches only,
+    20 by default. q is looked for in the Finnish title and in the English one when it exists."""
+    english = english_titles()
     sql, params = "SELECT page_id, title, versions, first_edit, last_edit FROM article_stats", []
     if q and q.strip():
         like = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        sql += " WHERE title LIKE %s"
+        sql += " WHERE (title LIKE %s"
         params.append(f"%{like}%")
+        low = q.strip().lower()
+        ids = [pid for pid, name in english.items() if low in name.lower()][:3000]
+        if ids:
+            sql += f" OR page_id IN ({', '.join(['%s'] * len(ids))})"
+            params += ids
+        sql += ")"
     sql += " ORDER BY versions DESC"
     if q or limit:
         sql += " LIMIT %s"
         params.append(limit or 20)
     with db() as cur:
         cur.execute(sql, params)
-        return [{**r, "first_edit": day(r["first_edit"]), "last_edit": day(r["last_edit"])}
+        return [{**r, "title_en": english.get(r["page_id"]),
+                 "first_edit": day(r["first_edit"]), "last_edit": day(r["last_edit"])}
                 for r in cur.fetchall()]
 
 
@@ -409,8 +426,8 @@ def article(page_id: int, as_of: str | None = None):
         row = cur.fetchone()
     if not row:
         raise HTTPException(404, "article not found at that date")
-    return {"page_id": page_id, "title": row["title"], "rev_id": row["rev_id"],
-            "as_of": as_of or None,
+    return {"page_id": page_id, "title": row["title"], "title_en": english_titles().get(page_id),
+            "rev_id": row["rev_id"], "as_of": as_of or None,
             "saved_at": row["row_start"].strftime("%Y-%m-%dT%H:%M:%SZ"),
             "text": clean(row["text"])}
 
