@@ -33,6 +33,7 @@ CANDIDATES = "data/exchange/candidates.jsonl"
 ANALYSIS = "data/exchange/analysis.jsonl"
 FOCUS_PAGE = 1150               # Suomen sisällissota: the core of the demo
 MAX_WORKERS = 4                 # shared server: never more than 4 calls at once
+STOP_AFTER_FAILURES = 10        # with 4 parallel calls, a short burst of 500s already gives 3-4 failures
 
 INVESTIGATOR_PROMPT = """You investigate one edit to a Finnish Wikipedia article about the history of Finland.
 Texts are in Finnish; reason over them and answer in English.
@@ -110,7 +111,8 @@ def ask_nemotron(prompt: str, edit: str, image_url: str | None) -> dict:
     r = httpx.post(
         CONFIG["base_url"].rstrip("/") + "/chat/completions",
         headers={"Authorization": f"Bearer {CONFIG['key']}"},
-        json={"model": CONFIG["model"], "temperature": 0.6, "top_p": 0.95, "max_tokens": 2000,
+        # The model reasons before answering: 2000 tokens left empty or cut-off answers on Saturday.
+        json={"model": CONFIG["model"], "temperature": 0.6, "top_p": 0.95, "max_tokens": 6000,
               "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": content}]},
         # 1-3 s when the shared server is quiet, but we measured 20-220 s under load on Saturday.
         timeout=300,
@@ -154,7 +156,7 @@ def investigate(row: dict) -> dict:
     image_url = image.get("thumb_url") if image else None
     message = json.dumps(edit, ensure_ascii=False)
     last_error = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             started = time.time()
             raw = ask_nemotron(INVESTIGATOR_PROMPT, message, image_url)
@@ -163,7 +165,7 @@ def investigate(row: dict) -> dict:
             return {**row, "nemotron": report}
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError) as e:
             last_error = e
-            time.sleep(3 * (attempt + 1))
+            time.sleep(10 * (attempt + 1))     # 500 errors came in bursts: give the server time
     raise RuntimeError(f"rev {row['rev_id']}: {type(last_error).__name__}: {str(last_error)[:200]}")
 
 
@@ -219,9 +221,9 @@ def main() -> None:
                 failed += 1
                 failed_in_a_row += 1
                 print("  failed:", e)      # not written: it will be retried on the next run
-                if failed_in_a_row >= 3:
+                if failed_in_a_row >= STOP_AFTER_FAILURES:
                     # The shared server is probably down: stop instead of hammering it.
-                    print("3 failures in a row: stopping. Check the server, then run again.")
+                    print(f"{STOP_AFTER_FAILURES} failures in a row: stopping. Check the server, then run again.")
                     pool.shutdown(cancel_futures=True)
                     break
                 continue
