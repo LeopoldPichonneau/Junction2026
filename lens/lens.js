@@ -115,6 +115,16 @@
     }
   }
 
+  // analysis.jsonl "added" holds the changed words, passage by passage, joined with an ellipsis.
+  // Try the whole text, then each passage, then each sentence, longest first; under 6 words a
+  // match would be too ambiguous to outline.
+  function passages(text) {
+    const parts = text.split(/\s*(?:\u2026|\.\.\.)\s*/).map((t) => t.trim()).filter(Boolean);
+    const sentences = parts.flatMap((t) => t.split(/(?<=[.!?])\s+/));
+    const all = [text, ...parts.sort((a, b) => b.length - a.length), ...sentences.sort((a, b) => b.length - a.length)];
+    return [...new Set(all.map(norm))].filter((t) => t.split(" ").length >= 6);
+  }
+
   // ---------- Match cases on the page ----------
   const figures = [...content.querySelectorAll("figure, .thumb, .infobox img")];
   const paragraphs = [...content.querySelectorAll("p")].map((p) => {
@@ -140,13 +150,9 @@
       if (hit) { addCase(hit, c); found.push({ c, node: hit }); } else missing.push(c);
       continue;
     }
-    // Text: whole added text first, then its longest sentence of 6+ words.
-    const tries = [c.text || ""];
-    const sentences = (c.text || "").split(/(?<=[.!?])\s+/).filter((s) => s.split(/\s+/).length >= 6);
-    sentences.sort((a, b) => b.length - a.length);
-    if (sentences[0]) tries.push(sentences[0]);
     let hit = null;
-    for (const t of tries.map(norm).filter((t) => t.split(" ").length >= 6)) {
+    const tries = passages(c.text || "");
+    for (const t of tries) {
       hit = paragraphs.find((x) => x.text.includes(t));
       if (hit) { hit.needle = t; break; }
     }
