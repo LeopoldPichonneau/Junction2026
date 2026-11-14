@@ -10,8 +10,8 @@ et les 16 fichiers `data/versions-XX.parquet` (avec un seul, on ne couvre que 28
 |---|---|---|---|
 | 1 | `python decision/accounts.py` | `data/versions-*.parquet` | `accounts.jsonl` (format 4.3 bis) + `accounts_summary.json` → **à donner à Maël** |
 | 2 | `python decision/decide.py` | `analysis.jsonl` (Maël) | `decisions.jsonl` (format 4.3) |
-| 3 | `python decision/exposure.py` (après la fin de `decide.py`) | `decisions.jsonl`, `analysis.jsonl`, parquet, API d'audience | `exposure.jsonl` + ajoute `exposure` dans `decisions.jsonl` |
-| 4 | `python decision/quality.py campaign` | `candidates.jsonl` (images réelles) | `synthetic_candidates.jsonl` → **à donner à Maël** |
+| 3 | `python decision/exposure.py` (peut tourner **avant** Nemotron : il prend `candidates.jsonl` si `analysis.jsonl` n'existe pas encore) | les cas, parquet, API d'audience | `exposure.jsonl` (gardé d'une fois sur l'autre : seuls les nouveaux cas sont calculés) ; après `decide.py` : `python decision/exposure.py --merge-only` ajoute `exposure` dans `decisions.jsonl` |
+| 4 | `python decision/quality.py campaign` | `candidates.jsonl` (vraies photos d'articles différents) | `synthetic_candidates.jsonl` (10 textes + 3 légendes trompeuses) → **à donner à Maël** |
 | 5 | `python decision/quality.py review-sheet` | `decisions.jsonl` | `data/manual_review.csv` (20 cas à relire à la main) |
 | 6 | `python decision/quality.py report` | tout ce qui précède | `quality.json` (servi tel quel par l'API) |
 

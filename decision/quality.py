@@ -67,15 +67,27 @@ def campaign() -> None:
 
     # Misleading captions: a real photo given the caption of ANOTHER real photo. We reuse Maël's
     # real image candidates so the picture exists and Nemotron can look at it.
-    real = [c for c in read_jsonl(config.EXCHANGE / "candidates.jsonl")
-            if c.get("kind") == "image" and not c.get("synthetic") and (c.get("image") or {}).get("thumb_url")
-            and (c["image"].get("caption_new") or "").strip()]
+    real, seen = [], set()
+    for c in read_jsonl(config.EXCHANGE / "candidates.jsonl"):
+        img = c.get("image") or {}
+        caption = (img.get("caption_new") or "").strip()
+        # A real photo (not a logo or map) with a descriptive caption, one per file.
+        if (c.get("kind") == "image" and not c.get("synthetic") and img.get("thumb_url")
+                and img.get("change") in ("added", "recaptioned", "replaced") and len(caption) >= 25
+                and str(img.get("file", "")).lower().endswith((".jpg", ".jpeg")) and img["file"] not in seen):
+            seen.add(img["file"])
+            real.append(c)
+    # Deterministic shuffle, so the campaign does not depend on the order of Maël's file.
+    real.sort(key=lambda c: hashlib.sha256(str(c["rev_id"]).encode()).hexdigest())
     if len(real) < 2:
         print("  No real image candidates with a thumbnail yet: caption cases skipped. "
               "Rerun once Maël's candidates.jsonl has thumbnails.")
     for n in range(min(3, len(real) - 1 if len(real) > 1 else 0)):
-        photo, other = real[n], real[(n + 1) % len(real)]
-        if norm(photo["image"]["caption_new"]) == norm(other["image"]["caption_new"]):
+        photo = real[n]
+        # The misleading caption comes from a photo of ANOTHER article, so it cannot match by chance.
+        other = next((o for o in real[n + 1:] if o["page_id"] != photo["page_id"]
+                      and norm(o["image"]["caption_new"]) != norm(photo["image"]["caption_new"])), None)
+        if other is None:
             continue
         i += 1
         rows.append(_line(i, photo["page_id"], photo["title"], t0 + timedelta(days=10 - n), "image",
