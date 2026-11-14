@@ -84,7 +84,8 @@ jobs:
           SSH="ssh -i $HOME/.ssh/timeproof_deploy -o BatchMode=yes $VPS_USER@$VPS_HOST"
           # The load runs inside the server container for hours: a rebuild would kill it.
           # web/ is a mounted folder, so site changes are already live without a restart.
-          if $SSH 'pgrep -f load_versions.py >/dev/null' && [ "$FORCE" != "true" ]; then
+          # "[l]oad" still matches the loader but not this check's own shell, whose command line contains the pattern.
+          if $SSH 'pgrep -f "[l]oad_versions.py" >/dev/null' && [ "$FORCE" != "true" ]; then
             echo "::warning::History load is running: files copied, server NOT restarted. Re-run with force=true once the load is done."
             exit 0
           fi
