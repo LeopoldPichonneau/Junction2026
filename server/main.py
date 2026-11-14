@@ -115,9 +115,15 @@ def stats():
                     f"COUNT(d.readers_est) AS known "
                     f"FROM decision d JOIN candidate c USING (rev_id) WHERE {PUBLIC}")
         pub = cur.fetchone()
+    # decision/readers.py: the same page views, each moment of an article counted once.
+    # Only used when its recomputed sum matched the published one ("checked").
+    uniq = exchange_json("readers.json")
+    unique = uniq.get("unique") if uniq.get("checked") and uniq.get("sum_of_cases") == int(pub["readers"]) else None
     return {"articles": int(s["articles"]), "versions": int(s["versions"]),
             "candidates": int(candidates), "analysed": int(analysed),
             "published": int(pub["n"]), "readers_exposed_est": int(pub["readers"]),
+            "readers_unique_est": unique,
+            "readers_unique_note": uniq.get("method") if unique is not None else None,
             # A sum over cases: two cases live on the same article on the same day count its
             # readers twice. Daily page views per article are not exported, so we say so.
             "readers_is_upper_bound": True,
