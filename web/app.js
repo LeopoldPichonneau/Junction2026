@@ -269,8 +269,9 @@ function renderLayout() {
     el(
       "div",
       { class: "inner" },
-      // The accessible name starts with the visible "TP", as WCAG 2.5.3 asks.
-      el("a", { class: "brand-mark", href: "index.html", title: "TimeProof home", "aria-label": "TP, TimeProof home", text: "TP" }),
+      // The globe logo (dark-rail colours, the rail is dark in both themes); its alt text names the link.
+      el("a", { class: "brand-mark", href: "index.html", title: "TimeProof home" },
+        el("img", { src: "logo.svg?v=24", alt: "TimeProof home", width: "48", height: "48" })),
       el(
         "nav",
         { "aria-label": "Main" },
@@ -1598,7 +1599,7 @@ async function pageQuality() {
     card(fmt(q.suspicious_accounts), "Accounts with an unusual pattern",
       "Bot-like rhythm, short-lived or single-topic accounts. A pattern is a hint, not proof, and no account is named.");
   }
-  const known = new Set(["synthetic_campaign", "manual_review", "downgraded_by_two_model_rule", "declared_bots_excluded", "suspicious_accounts", "notes", "long_tail", "repeat_accounts", "time_online", "details"]);
+  const known = new Set(["synthetic_campaign", "manual_review", "downgraded_by_two_model_rule", "declared_bots_excluded", "suspicious_accounts", "notes", "long_tail", "repeat_accounts", "time_online", "two_models", "details"]);
   for (const [k, v] of Object.entries(q)) {
     if (!known.has(k) && (typeof v === "number" || typeof v === "string")) card(String(v), k.replaceAll("_", " "), "");
   }
@@ -1606,6 +1607,23 @@ async function pageQuality() {
   const blocks = [section("How a case gets published", pipelineFigure(steps),
     el("p", { class: "meta", text: "Nemotron (the investigator) and Gemini (the decider) are two different AI models. When they disagree, nothing is published: a human decides." }))];
   blocks.push(cards.length ? el("div", { class: "quality-grid" }, cards) : el("p", { class: "empty", text: "No quality figures yet." }));
+
+  // What each model said on every examined edit (decision/quality.py, counted from decisions.jsonl).
+  const tm = q.two_models;
+  if (tm && tm.nemotron_yes && tm.nemotron_no) {
+    const cols = [["flag", "Publish"], ["human_review", "Ask a human"], ["dismiss", "Dismiss"], ["not_asked", "Not asked (closed by rule)"]];
+    const row = (label, r) => el("tr", {}, el("th", { scope: "row", text: `${label} (${fmt(r.total)})` }),
+      cols.map(([k]) => el("td", { text: typeof r[k] === "number" ? fmt(r[k]) : "–" })));
+    blocks.push(section(
+      "What each model said",
+      el("div", { class: "table-scroll" }, el("table", { class: "q-table" },
+        el("caption", { class: "sr-only", text: "Nemotron's finding against Gemini's decision, for every examined edit" }),
+        el("thead", {}, el("tr", {}, el("th", { scope: "col", text: "Gemini said →" }), cols.map(([, h]) => el("th", { scope: "col", text: h })))),
+        el("tbody", {}, row("Nemotron: suspicious", tm.nemotron_yes), row("Nemotron: harmless", tm.nemotron_no)))),
+      tm.sentences ? el("ul", { class: "plain" }, Object.values(tm.sentences).map((t) => el("li", { text: t }))) : null,
+      el("p", { class: "meta", text: "“Suspicious” is a model's judgement, not confirmed manipulation. Planted test edits are counted apart and never shown." })
+    ));
+  }
   const liveBlock = usingMock ? null : liveWatchSection(await optional("/api/live"), q);
   if (liveBlock) blocks.push(liveBlock);
 
