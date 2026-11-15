@@ -3,6 +3,7 @@
     python decision/quality.py campaign       # 1. plant the labelled fake campaign (give the file to Maël)
     python decision/quality.py review-sheet   # 2. pick 20 real "flag" cases to check by hand
     python decision/quality.py report         # 3. compute data/exchange/quality.json from real files
+    python decision/quality.py models         # add only the two-model table to an existing quality.json
 
 Every number in quality.json is counted from files; anything we have not measured yet is null.
 The fake campaign is labelled "synthetic": true end to end and is never published.
@@ -244,6 +245,80 @@ def time_online_section(decisions: list[dict]) -> dict:
     }}
 
 
+def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """95% range for a share measured on a small sample (Wilson score interval)."""
+    p, d = k / n, 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / d
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return max(0.0, centre - half), min(1.0, centre + half)
+
+
+def two_models_section(real: list[dict], synth: list[dict], manual: dict | None) -> dict:
+    """What each model said on every examined edit: Nemotron (investigator) x Gemini (decider).
+    Counted from decisions.jsonl; the page shows it as a table, with the sentences below it."""
+    if not real:
+        return {}
+    def gemini(nemo: bool) -> dict:
+        """What Gemini said on the edits Nemotron did (or did not) find suspicious; "not_asked"
+        = closed by rule after Nemotron, Gemini never saw it."""
+        rows = [d for d in real if (d.get("nemotron_suspicious") is True) == nemo]
+        said = {k: sum(d.get("gemini_decision") == k for d in rows) for k in ("flag", "human_review", "dismiss")}
+        return {**said, "not_asked": sum(d.get("gemini_decision") is None for d in rows), "total": len(rows)}
+    yes, no = gemini(True), gemini(False)
+    sus = yes["total"]
+    out = {
+        "examined": len(real), "nemotron_yes": yes, "nemotron_no": no,
+        "sentences": {
+            "suspicious": f"Nemotron, the investigator, examined {len(real):,} real edits and found "
+                          f"{sus:,} suspicious ({pct(sus / len(real))}).",
+            "confirmed": f"Gemini, the decider, agreed on {yes['flag']:,} of those {sus:,} "
+                         f"({pct(yes['flag'] / sus) if sus else '–'}): only these are published.",
+            "held": f"On the other {sus - yes['flag']:,}, Gemini disagreed ({yes['dismiss']:,}) or was unsure "
+                    f"({yes['human_review']:,}): none is published, a human decides.",
+            "cross_check": f"Gemini also re-read {no['total'] - no['not_asked']:,} edits Nemotron found harmless: "
+                           f"it agreed on {no['dismiss']:,} and sent {no['human_review'] + no['flag']:,} to a human.",
+        },
+    }
+    if synth:
+        seen = sum(d.get("nemotron_suspicious") is True for d in synth)
+        flagged = sum(d.get("decision") == "flag" for d in synth)
+        human = sum(d.get("decision") == "human_review" for d in synth)
+        dismissed = sum(d.get("decision") == "dismiss" for d in synth)
+        out["test_campaign"] = {"planted": len(synth), "seen": seen, "flagged": flagged,
+                                "human_review": human, "dismissed": dismissed}
+        out["sentences"]["test_campaign"] = (
+            f"Planted test edits: Nemotron saw {seen} of {len(synth)}; {flagged} would have been published, "
+            f"{human} sent to a human, {dismissed} dismissed.")
+    if manual and manual.get("reviewed"):
+        lo, hi = wilson(manual["correct"], manual["reviewed"])
+        out["manual_review_range"] = {"low": round(lo, 3), "high": round(hi, 3)}
+        out["sentences"]["manual_review_range"] = (
+            f"{manual['correct']} of {manual['reviewed']} flags re-read by hand were right. On so few cases, "
+            f"the true share is somewhere between {pct(lo)} and {pct(hi)} (95% range).")
+    return {"two_models": out}
+
+
+def models_only() -> None:
+    """Add only the two-model block to the existing quality.json. For a machine that has
+    decisions.jsonl but not the review sheet or Maël's insights files: a full `report` there
+    would drop the figures measured from those files."""
+    path = config.EXCHANGE / "quality.json"
+    quality = json.loads(path.read_text(encoding="utf-8"))
+    decisions = [d for d in read_jsonl(config.EXCHANGE / "decisions.jsonl") if not d.get("sample")]
+    if any(d.get("decided_by") == "mock" for d in decisions):
+        raise SystemExit("decisions.jsonl contains mock decisions: refusing to publish numbers from them.")
+    real = [d for d in decisions if not d.get("synthetic")]
+    synth = [d for d in decisions if d.get("synthetic")]
+    block = two_models_section(real, synth, quality.get("manual_review"))
+    details = quality.pop("details", None)          # keep "details" last, as report() writes it
+    quality.update(block)
+    if details is not None:
+        quality["details"] = details
+    write_atomic(path, quality, jsonl=False)
+    print(json.dumps(block, indent=2, ensure_ascii=False))
+    print(f"Updated {path}")
+
+
 def report() -> None:
     decisions = list(read_jsonl(config.EXCHANGE / "decisions.jsonl"))
     if any(d.get("decided_by") == "mock" for d in decisions):
@@ -291,6 +366,7 @@ def report() -> None:
     # Objects, not numbers: the page ignores them until Eléa adds a block that reads the sentences.
     quality.update(insights_sections())
     quality.update(time_online_section(real))
+    quality.update(two_models_section(real, synth, quality.get("manual_review")))
     quality["details"] = {
         "synthetic_examined": len(synth),
         "synthetic_seen_as_suspicious_by_nemotron": sum(d.get("nemotron_suspicious") is True for d in synth),
@@ -307,9 +383,9 @@ def report() -> None:
 
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("step", choices=["campaign", "review-sheet", "report"])
+    p.add_argument("step", choices=["campaign", "review-sheet", "report", "models"])
     args = p.parse_args()
-    {"campaign": campaign, "review-sheet": review_sheet, "report": report}[args.step]()
+    {"campaign": campaign, "review-sheet": review_sheet, "report": report, "models": models_only}[args.step]()
 
 
 if __name__ == "__main__":
