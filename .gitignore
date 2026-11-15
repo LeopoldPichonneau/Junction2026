@@ -5,3 +5,15 @@ data/
 __pycache__/
 .venv/
 *.jsonl.local
+
+# Local environment files and keys (only .env.example is committed)
+.env.*
+!.env.example
+
+# Local tooling and OS files
+.DS_Store
+node_modules/
+*.pyc
+.idea/
+.vscode/
+

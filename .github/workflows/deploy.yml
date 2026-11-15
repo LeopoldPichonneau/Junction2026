@@ -2,7 +2,6 @@
 # main collects the team's merges; Deploy is what runs online. To release: git push origin main:Deploy
 # Setup (once): CRACI GitHub app installed on the repo, and three Actions secrets:
 #   VPS_HOST (VPS address), VPS_USER (deploy), VPS_SSH_KEY (private deploy key).
-# This file has never run yet: check the "Runner tools" step on the first run.
 name: deploy
 
 on:
