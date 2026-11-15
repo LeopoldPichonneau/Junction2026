@@ -27,6 +27,7 @@ through the server's internal routes, protected by `INTERNAL_TOKEN`.
 | `server/live.py` | `POST /api/internal/watch`, `GET /api/live`, review desk routes |
 | `hermes/timeproof_watch.py` | the watch job; installed as `/opt/data/scripts/timeproof_watch.py` in the Hermes container |
 | `hermes/timeproof_review.py` | the review desk job; installed as `/opt/data/scripts/timeproof_review.py` |
+| `hermes/timeproof_brief.py` | figures for the hourly brief; installed as `/opt/data/scripts/timeproof_brief.py` |
 | `data/exchange/live-candidates.jsonl`, `live-analysis.jsonl`, `live-decisions.jsonl` | same formats as the batch files, plus `"source": "live"` and `"detected_at"` on candidates |
 | `data/exchange/live-runs.jsonl` | one line per run (counters, errors) |
 | `data/logs/watch.log` | the watcher's log |
@@ -75,6 +76,19 @@ docker exec -u hermes $H hermes cron pause 075991dd5be6     # stop the review de
 docker exec -u hermes $H hermes cron resume 075991dd5be6    # start it again
 ```
 
+## Hourly brief (the Hermes agent's own model)
+
+Hermes job `timeproof-brief` (id `05dd4a971735`, every 60 min) is the one place where Hermes's model (Gemini,
+`model.provider: gemini` in `/opt/data/config.yaml`) writes something: a 4 to 6 line situation brief posted in
+the private channel. `timeproof_brief.py` gives it **numbers only** (the public counters of `GET /api/live`):
+no Wikipedia text, no model text, no reviewer text, so an edit cannot steer the agent. It reports the health
+of the watch, the figures and the dossiers waiting; it judges no case.
+
+```bash
+docker exec -u hermes $H hermes cron run 05dd4a971735       # one brief now
+docker exec -u hermes $H hermes cron pause 05dd4a971735     # stop the briefs
+```
+
 ## Mock mode
 
 With `USE_MOCK=true`, `python watch.py` sends nothing: one realistic fake edit (the 1918 war renamed in a
@@ -85,4 +99,5 @@ prose paragraph), mocked models, files named `live-*-mock.jsonl`, and every data
 TimeProof `.env`: `INTERNAL_TOKEN`, `WATCH_FIRST_HOURS`, `WATCH_INTERVAL_MIN`, `REVIEWS_PER_HOUR`, and the
 model keys (`VERDA_INFERENCE_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL`): without them candidates stay queued.
 Hermes `.env` (`/opt/data/.env`): `TIMEPROOF_URL`, `TIMEPROOF_INTERNAL_TOKEN`, `DISCORD_BOT_TOKEN`,
-`DISCORD_REVIEW_CHANNEL_ID`, `DISCORD_ALLOWED_USERS` (Discord user ids, comma-separated).
+`DISCORD_REVIEW_CHANNEL_ID`, `DISCORD_ALLOWED_USERS` (Discord user ids, comma-separated), `GEMINI_API_KEY`
+(Hermes's own model, used by the hourly brief only).
