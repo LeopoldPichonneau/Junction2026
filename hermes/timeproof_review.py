@@ -92,7 +92,7 @@ def read_verdicts(state: dict) -> None:
         if r.status_code == 200:
             previous = r.json().get("previous")
             changed = f" (was: {previous})" if previous not in (None, "pending") else ""
-            say(f"Recorded: **{verdict}** for rev {rev_id}, by {who}{changed}. Stored with its history; nothing was published.", m["id"])
+            say(f"Recorded: **{verdict}** for rev {rev_id}, by {plain(who, 60)}{changed}. Stored with its history; nothing was published.", m["id"])
             print(f"verdict recorded: {verdict} {rev_id}")
         elif r.status_code == 404:
             say(f"Not recorded: no dossier was sent for rev {rev_id}. Check the number.", m["id"])
@@ -103,8 +103,18 @@ def read_verdicts(state: dict) -> None:
 
 # ---------- 2. the next dossier ----------
 
-def quote(text: str | None) -> str:
-    return "> " + text.replace("\n", "\n> ") if text else "> (nothing)"
+MARKDOWN = re.compile(r"([\\`*_~|>\[\]()<@#:])")
+
+
+def plain(text, limit: int = 300) -> str:
+    """Untrusted text (Wikipedia, model output) on one line with Discord formatting switched off, so that
+    an edit cannot fake a heading, a link, a mention or one of our own lines inside a dossier."""
+    flat = " ".join(str(text or "").split())[:limit]
+    return MARKDOWN.sub(r"\\\1", flat)
+
+
+def quote(text, limit: int = 330) -> str:
+    return "> " + plain(text, limit) if text else "> (nothing)"
 
 
 def dossier_messages(c: dict) -> list[str]:
@@ -116,26 +126,26 @@ def dossier_messages(c: dict) -> list[str]:
         f", at most {t['readers_upper_bound']:,} readers" if t.get("readers_upper_bound") else "")
     facts = [
         f"**Human review needed: rev {c['rev_id']}** ({live})",
-        f"Article: **{c['article']}**, edited {c['edited_at']}, kind: {c['kind']}, account code: {c.get('account_id') or 'n/a'}",
+        f"Article: **{plain(c['article'], 150)}**, edited {c['edited_at']}, kind: {plain(c['kind'], 20)}, account code: {c.get('account_id') or 'n/a'}",
         f"Time online: {online}. Sources removed: {c.get('sources_removed', 0)}.",
     ]
     if image:
-        facts.append(f"Image: {image.get('change')} `{image.get('file')}`"
-                     + (f", caption before: \"{image['caption_old']}\"" if image.get("caption_old") else "")
-                     + (f", caption after: \"{image['caption_new']}\"" if image.get("caption_new") else ""))
+        facts.append(f"Image: {plain(image.get('change'), 20)}, file: {plain(image.get('file'), 120)}"
+                     + (f", caption before: \"{plain(image['caption_old'], 200)}\"" if image.get("caption_old") else "")
+                     + (f", caption after: \"{plain(image['caption_new'], 200)}\"" if image.get("caption_new") else ""))
     for label, fi, en in (("Added", c.get("added_fi"), c.get("added_en")), ("Removed", c.get("removed_fi"), c.get("removed_en"))):
         if fi:
-            facts += [f"**{label} (Finnish):**", quote(fi[:330]), f"**{label} (English):**",
-                      quote(en[:330]) if en else "> (translation unavailable)"]
+            facts += [f"**{label} (Finnish, quoted from Wikipedia):**", quote(fi), f"**{label} (English, machine translation):**",
+                      quote(en) if en else "> (translation unavailable)"]
     facts.append(f"Before: <{links.get('version_before')}>\nAfter: <{links.get('version_after')}>\nDiff: <{links.get('diff')}>")
     nem, gem = c.get("nemotron") or {}, c.get("gemini") or {}
     opinions = [
         f"**Rev {c['rev_id']}: what the two models said**",
         f"**Nemotron** (investigator): {'suspicious' if nem.get('suspicious') else 'not suspicious'}"
-        + (f", signals: {', '.join(map(str, nem['signals']))}" if nem.get("signals") else ""),
-        quote(str(nem.get("report") or "")[:600]),
-        f"**Gemini** (decider): {gem.get('decision')}" + (f", confidence {gem['confidence']}" if gem.get("confidence") is not None else ""),
-        quote(str(gem.get("explanation") or gem.get("headline_en") or "")[:500]),
+        + (f", signals: {plain(', '.join(map(str, nem['signals'])), 150)}" if nem.get("signals") else ""),
+        quote(nem.get("report"), 600),
+        f"**Gemini** (decider): {plain(gem.get('decision'), 20)}" + (f", confidence {gem['confidence']}" if gem.get("confidence") is not None else ""),
+        quote(gem.get("explanation") or gem.get("headline_en"), 500),
         f"**Why it is here:** {c.get('why_they_disagree')}",
         f"**Your call:** `approve {c['rev_id']} <short reason>` (it is a real problem) or `reject {c['rev_id']} <short reason>` (false alarm).",
     ]
