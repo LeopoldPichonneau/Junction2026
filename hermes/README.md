@@ -65,7 +65,9 @@ Hermes job `timeproof-review` (every 2 min, no model call) runs `timeproof_revie
    the Finnish quote and its English translation, sources removed, what Nemotron saw, what Gemini decided, why
    they disagree, links to both Wikipedia versions, time online, and the anonymous account code.
 
-A human verdict never changes `publish`: publication stays with the rule in `decision/`. Synthetic and mock
+A human verdict never publishes a `human_review` case: publication stays with the rule in `decision/`.
+One extra gate: a **live** edit that the rule decided to publish stays off the site until a team member
+approves its dossier (live text is untrusted and was read by the models minutes after it was written). Synthetic and mock
 cases never leave the server. The English translation is one plain model call on the server, with no tools.
 
 ```bash

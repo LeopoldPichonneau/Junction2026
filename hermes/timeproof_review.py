@@ -92,7 +92,7 @@ def read_verdicts(state: dict) -> None:
         if r.status_code == 200:
             previous = r.json().get("previous")
             changed = f" (was: {previous})" if previous not in (None, "pending") else ""
-            say(f"Recorded: **{verdict}** for rev {rev_id}, by {plain(who, 60)}{changed}. Stored with its history; nothing was published.", m["id"])
+            say(f"Recorded: **{verdict}** for rev {rev_id}, by {plain(who, 60)}{changed}. " "Stored with its history; " + ("the case is now published on the site." if r.json().get("published") and verdict == "approve" else "nothing was published."), m["id"])
             print(f"verdict recorded: {verdict} {rev_id}")
         elif r.status_code == 404:
             say(f"Not recorded: no dossier was sent for rev {rev_id}. Check the number.", m["id"])
@@ -147,7 +147,7 @@ def dossier_messages(c: dict) -> list[str]:
         f"**Gemini** (decider): {plain(gem.get('decision'), 20)}" + (f", confidence {gem['confidence']}" if gem.get("confidence") is not None else ""),
         quote(gem.get("explanation") or gem.get("headline_en"), 500),
         f"**Why it is here:** {c.get('why_they_disagree')}",
-        f"**Your call:** `approve {c['rev_id']} <short reason>` (it is a real problem) or `reject {c['rev_id']} <short reason>` (false alarm).",
+        f"**Your call:** `approve {c['rev_id']} <short reason>` (it is a real problem) or `reject {c['rev_id']} <short reason>` (false alarm). Approve {plain(c.get('on_approve') or 'is recorded', 80)}.",
     ]
     return ["\n".join(facts)[:1990], "\n".join(opinions)[:1990]]
 

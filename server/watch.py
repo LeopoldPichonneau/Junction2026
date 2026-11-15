@@ -441,6 +441,16 @@ def import_live(conn) -> None:
                         [r[0] for r in rows])
             same = {r["rev_id"]: json.loads(r["data"]) for r in cur.fetchall()}
             rows = [r for r in rows if same.get(r[0]) != json.loads(r[-1])]
+        if name == "decisions" and rows:
+            # Live edits are untrusted text read by the models minutes after it was written: a live flag
+            # goes on the site only once a team member approved it on the review desk (server/live.py).
+            # The rule's own answer stays in `data`; only the `publish` column is held back.
+            try:
+                cur.execute("SELECT rev_id FROM human_decision WHERE verdict = 'approve'")
+                approved = {r["rev_id"] for r in cur.fetchall()}
+            except Exception:
+                approved = set()
+            rows = [r if r[0] in approved else (r[0], r[1], False, *r[3:]) for r in rows]
         if rows:
             cur.executemany(sql, rows)
     commit(conn)
@@ -452,7 +462,21 @@ def live_totals() -> dict:
     decisions = read_jsonl(DECISIONS)
     return {"candidates": len(read_jsonl(CANDIDATES)), "analysed": len(read_jsonl(ANALYSIS)),
             **{d: sum(r.get("decision") == d for r in decisions) for d in ("flag", "human_review", "dismiss")},
-            "published": sum(bool(r.get("publish")) for r in decisions)}
+            "published": published_live(decisions)}
+
+
+def published_live(decisions: list[dict]) -> int:
+    """Live flags really on the site: the rule said publish and a human approved."""
+    wanted = [int(r["rev_id"]) for r in decisions if r.get("decision") == "flag" and r.get("publish")]
+    if not wanted:
+        return 0
+    conn = connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS n FROM decision WHERE publish = 1 AND rev_id IN (%s)" % ",".join(["%s"] * len(wanted)), wanted)
+            return int(cur.fetchone()["n"])
+    finally:
+        conn.close()
 
 
 # ---------- one run ----------

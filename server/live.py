@@ -142,6 +142,11 @@ def human_counts() -> dict | None:
             "reject": by.get("reject", 0), "pending": by.get("pending", 0)}
 
 
+# A live edit both models flagged: the rule said publish, the site waits for a human (see watch.import_live).
+HELD_LIVE_FLAG = ("(d.decision = 'flag' AND d.publish = 0 AND JSON_VALUE(c.data, '$.source') = 'live' "
+                  "AND JSON_VALUE(d.data, '$.publish') IN ('1', 'true'))")
+
+
 def why_disagree(nemotron_suspicious, gemini_decision) -> str:
     if nemotron_suspicious is True and gemini_decision == "dismiss":
         return "Nemotron (investigator) found the edit suspicious; Gemini (decider) judged it ordinary editing."
@@ -205,7 +210,7 @@ def review_next(peek: bool = False, translate: bool = True, x_internal_token: st
                 "d.days_live, d.readers_est, d.still_online, d.data AS d_data, a.data AS a_data "
                 "FROM decision d JOIN candidate c USING (rev_id) LEFT JOIN analysis a USING (rev_id) "
                 "LEFT JOIN human_decision h USING (rev_id) "
-                "WHERE d.decision = 'human_review' AND c.synthetic = 0 AND h.rev_id IS NULL "
+                "WHERE (d.decision = 'human_review' OR " + HELD_LIVE_FLAG + ") AND c.synthetic = 0 AND h.rev_id IS NULL "
                 "ORDER BY JSON_VALUE(c.data, '$.source') <=> 'live' DESC, d.readers_est IS NULL, "
                 "d.readers_est DESC, d.days_live DESC, c.edited_at DESC LIMIT 1")
             row = cur.fetchone()
@@ -217,6 +222,7 @@ def review_next(peek: bool = False, translate: bool = True, x_internal_token: st
             cur.execute("SELECT parent_id FROM article FOR SYSTEM_TIME ALL WHERE rev_id = %s LIMIT 1", (row["rev_id"],))
             parent = (cur.fetchone() or {}).get("parent_id")
             nem, image = a.get("nemotron") or {}, c.get("image") or {}
+            held = d.get("decision") == "flag"      # live flag waiting for a human before it is published
             rev = row["rev_id"]
             dossier = {
                 "rev_id": rev, "article": row["title"], "edited_at": row["edited_at"].strftime("%Y-%m-%d %H:%M UTC"),
@@ -233,7 +239,10 @@ def review_next(peek: bool = False, translate: bool = True, x_internal_token: st
                              "image_findings": nem.get("image_findings")},
                 "gemini": {"decision": d.get("gemini_decision"), "confidence": d.get("confidence"),
                            "headline_en": d.get("headline_en"), "explanation": d.get("explanation")},
-                "why_they_disagree": why_disagree(d.get("nemotron_suspicious"), d.get("gemini_decision")),
+                "why_they_disagree": ("Both models agree this live edit should be flagged. A live edit is published "
+                                      "only after a team member approves it.") if held
+                else why_disagree(d.get("nemotron_suspicious"), d.get("gemini_decision")),
+                "on_approve": "publishes the case on the site" if held else "is recorded; the case stays unpublished",
                 "time_online": {"days": row["days_live"], "still_online": None if row["still_online"] is None else bool(row["still_online"]),
                                 "readers_upper_bound": row["readers_est"]},
                 "links": {"version_after": f"https://fi.wikipedia.org/?oldid={rev}",
@@ -270,9 +279,17 @@ def review_decision(v: HumanVerdict, x_internal_token: str | None = Header(None)
                 raise HTTPException(404, "no dossier was sent for this rev_id")
             cur.execute("UPDATE human_decision SET verdict = %s, reviewer = %s, reason = %s, decided_at = UTC_TIMESTAMP() "
                         "WHERE rev_id = %s", (v.verdict, v.reviewer.strip(), v.reason.strip(), v.rev_id))
+            # A human verdict never publishes a human_review case: that stays with the two-opinion rule of
+            # decision/decide.py. The one thing it does is release (approve) or keep back (anything else) a
+            # live edit that the rule itself already decided to publish.
+            cur.execute("UPDATE decision d JOIN candidate c USING (rev_id) SET d.publish = %s "
+                        "WHERE d.rev_id = %s AND c.synthetic = 0 AND d.decision = 'flag' "
+                        "AND JSON_VALUE(c.data, '$.source') = 'live' AND JSON_VALUE(d.data, '$.publish') IN ('1', 'true') "
+                        "AND d.publish <> %s", (v.verdict == "approve", v.rev_id, v.verdict == "approve"))
             conn.commit()
-            # Publication is not touched here: it stays with the two-opinion rule of decision/decide.py.
+            cur.execute("SELECT publish FROM decision WHERE rev_id = %s", (v.rev_id,))
+            published = bool((cur.fetchone() or {}).get("publish"))
             return {"recorded": True, "rev_id": v.rev_id, "verdict": v.verdict, "previous": row["verdict"],
-                    "published": False}
+                    "published": published}
     finally:
         conn.close()
