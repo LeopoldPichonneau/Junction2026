@@ -2,7 +2,7 @@
 
 > Samedi 14/11 · départ 10h (1 h de retard) · heure d'Helsinki · table A6
 > À lire en entier par les 4 avant de commencer. Gardez [TIMEPROOF-RESUME.md](TIMEPROOF-RESUME.md) à côté.
-> **Détails techniques** (pile, schéma SQL, colonnes des données, exemples d'appels, algorithmes, formats de l'API, pièges) : [TECH.md](TECH.md). **Règles pour tous et pour les assistants IA** : [AI-RULES.md](AI-RULES.md).
+> **Détails techniques** (pile, schéma SQL, colonnes des données, exemples d'appels, algorithmes, formats de l'API, pièges) : [TECH.md](TECH.md).
 
 ---
 
@@ -21,7 +21,7 @@ Pourquoi cette répartition :
 - **Nathanaël** a une partie indépendante qu'il peut développer sur des exemples.
 - **Eléa** a la partie la plus visible, celle que le jury verra.
 
-**Tout le monde code avec un assistant IA.** Faites-lui lire [AI-RULES.md](AI-RULES.md), cette fiche et [TECH.md](TECH.md), et demandez-lui une petite étape à la fois.
+Avant de coder : lire cette fiche et [TECH.md](TECH.md), puis avancer une petite étape à la fois.
 
 ---
 

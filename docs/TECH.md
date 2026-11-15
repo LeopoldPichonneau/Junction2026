@@ -35,7 +35,7 @@
 
 ```
 Junction2026/
-├── docs/                     ces documents, dont AI-RULES.md (règles pour tous et pour les assistants IA)
+├── docs/                     ces documents
 ├── docker-compose.yml        Léopold : services db + server
 ├── .env.example              Léopold : liste des variables, sans valeurs
 ├── .gitignore                Léopold
@@ -502,7 +502,7 @@ jobs:
           tar czf - --exclude=.git --exclude=data --exclude=.env . | ssh -i ~/.ssh/k "$VPS_USER@$VPS_HOST" "mkdir -p ~/timeproof && tar xzf - -C ~/timeproof"
           ssh -i ~/.ssh/k "$VPS_USER@$VPS_HOST" "cd ~/timeproof && docker compose up -d --build"
 ```
-Ce fichier n'a **jamais tourné** : vérifiez au premier push que le runner CRACI a bien `ssh` et `python3`. La veille peut être lancée par un second workflow avec `on: schedule: - cron: "0 * * * *"`, qui exécute `server/watch.py` sur le VPS par `ssh`.
+Le déploiement tourne sur la branche `Deploy` (pas sur `main`) : voir `.github/workflows/deploy.yml`. La veille peut être lancée par un second workflow avec `on: schedule: - cron: "0 * * * *"`, qui exécute `server/watch.py` sur le VPS par `ssh`.
 
 ## 14. Pièges déjà rencontrés
 

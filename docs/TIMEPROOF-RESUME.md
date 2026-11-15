@@ -5,7 +5,9 @@
 ## L'idée en une phrase
 
 **TimeProof montre qui réécrit l'histoire sur Wikipédia, quand et comment, et ne publie que ce qu'il peut prouver.**
-Données : 862 076 versions de 19 742 articles finnois sur l'histoire de la Finlande (2003 → 2026), fournies par MariaDB.
+Données : 862 076 versions de 19 742 articles finnois sur l'histoire de la Finlande (2003 → 2026), fournies par MariaDB, plus les nouvelles versions que la veille en direct ajoute depuis le 14/11.
+
+> **Mise à jour du dimanche 15/11** : ce qui suit est le plan de vendredi. Depuis, se sont ajoutés la **veille en direct** (Hermes Agent sur le VPS Hostinger : contrôle des modifications récentes toutes les 10 minutes, bureau de relecture sur le salon Discord privé, point horaire, voir `hermes/README.md`), les **preuves visuelles Cloudinary** (copie archivée des images de cas, vue avant / après) et la page **Accounts** (profils de comptes par code anonyme). Le déploiement CRACI part de la branche `Deploy`.
 
 ## Ce qu'on garde
 
@@ -24,7 +26,7 @@ Données : 862 076 versions de 19 742 articles finnois sur l'histoire de la Finl
 **La TimeProof Lens** : un favori à cliquer sur la **vraie page Wikipédia**, qui surligne les passages et images réécrits, avec leur historique et leur exposition au survol. C'est le moment « waouh » de la démo (seulement pour les articles de la démo).
 **Garde-fous** : un cas n'est signalé que si les **2 IA sont d'accord**, sinon un humain tranche. **Aucun nom de compte en public.**
 
-**Retiré** : le prix Verda et tout GPU Verda à gérer nous-mêmes (on se contente du serveur Nemotron fourni), questions multilingues (RAG), vecteurs, Arduino, surveillance en direct.
+**Retiré** : le prix Verda et tout GPU Verda à gérer nous-mêmes (on se contente du serveur Nemotron fourni), questions multilingues (RAG), vecteurs, Arduino. *(La surveillance en direct, retirée vendredi, a finalement été faite samedi soir avec Hermes.)*
 
 ## Qui fait quoi
 
