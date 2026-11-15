@@ -25,7 +25,8 @@ through the server's internal routes, protected by `INTERNAL_TOKEN`.
 |---|---|
 | `server/watch.py` | one watcher run (runs in the `server` container) |
 | `server/live.py` | `POST /api/internal/watch`, `GET /api/live`, review desk routes |
-| `hermes/timeproof_watch.py` | the Hermes job; installed as `/opt/data/scripts/timeproof_watch.py` in the Hermes container |
+| `hermes/timeproof_watch.py` | the watch job; installed as `/opt/data/scripts/timeproof_watch.py` in the Hermes container |
+| `hermes/timeproof_review.py` | the review desk job; installed as `/opt/data/scripts/timeproof_review.py` |
 | `data/exchange/live-candidates.jsonl`, `live-analysis.jsonl`, `live-decisions.jsonl` | same formats as the batch files, plus `"source": "live"` and `"detected_at"` on candidates |
 | `data/exchange/live-runs.jsonl` | one line per run (counters, errors) |
 | `data/logs/watch.log` | the watcher's log |
@@ -52,6 +53,26 @@ A run that is still working makes the next trigger a no-op (database lock), so t
 After a crash the next run resumes from the saved cursor; a version already stored is never stored twice
 (a page is always caught up "from its stored head").
 
+## Human review desk (private Discord channel)
+
+Hermes job `timeproof-review` (every 2 min, no model call) runs `timeproof_review.py`:
+
+1. It reads the new messages of the private channel. `approve <rev_id> <reason>` or `reject <rev_id> <reason>`
+   from a team member listed in `DISCORD_ALLOWED_USERS` is recorded in the versioned table `human_decision`
+   (who, when, why) and acknowledged in the channel. Anything else is ignored.
+2. While fewer than 3 dossiers wait for an answer (and at most `REVIEWS_PER_HOUR` per hour), it posts the next
+   `human_review` case: live cases first, then the most exposed. A dossier holds facts only: article, date,
+   the Finnish quote and its English translation, sources removed, what Nemotron saw, what Gemini decided, why
+   they disagree, links to both Wikipedia versions, time online, and the anonymous account code.
+
+A human verdict never changes `publish`: publication stays with the rule in `decision/`. Synthetic and mock
+cases never leave the server. The English translation is one plain model call on the server, with no tools.
+
+```bash
+docker exec -u hermes $H hermes cron pause 075991dd5be6     # stop the review desk
+docker exec -u hermes $H hermes cron resume 075991dd5be6    # start it again
+```
+
 ## Mock mode
 
 With `USE_MOCK=true`, `python watch.py` sends nothing: one realistic fake edit (the 1918 war renamed in a
@@ -61,4 +82,5 @@ prose paragraph), mocked models, files named `live-*-mock.jsonl`, and every data
 
 TimeProof `.env`: `INTERNAL_TOKEN`, `WATCH_FIRST_HOURS`, `WATCH_INTERVAL_MIN`, `REVIEWS_PER_HOUR`, and the
 model keys (`VERDA_INFERENCE_KEY`, `GEMINI_API_KEY`, `GEMINI_MODEL`): without them candidates stay queued.
-Hermes `.env` (`/opt/data/.env`): `TIMEPROOF_URL`, `TIMEPROOF_INTERNAL_TOKEN`.
+Hermes `.env` (`/opt/data/.env`): `TIMEPROOF_URL`, `TIMEPROOF_INTERNAL_TOKEN`, `DISCORD_BOT_TOKEN`,
+`DISCORD_REVIEW_CHANNEL_ID`, `DISCORD_ALLOWED_USERS` (Discord user ids, comma-separated).
