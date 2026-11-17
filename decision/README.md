@@ -1,42 +1,43 @@
-# decision/ — Décision & preuves (Nathanaël)
+# decision/ — Decision & evidence (Nathanaël)
 
-Tous les scripts se lancent **depuis la racine du dépôt**, avec Python 3.12 et `pip install pyarrow httpx`.
-Ils lisent `.env` à la racine. Avec `USE_MOCK=true` (valeur par défaut si `.env` n'existe pas), aucune clé n'est
-nécessaire et les sorties vont dans des fichiers `*.mock.jsonl`, pour ne jamais se faire passer pour de vraies données.
-**Pour les vrais fichiers que les autres attendent, il faut `USE_MOCK=false` dans `.env`** (+ `GEMINI_API_KEY`, `GEMINI_MODEL`),
-et les 16 fichiers `data/versions-XX.parquet` (avec un seul, on ne couvre que 281 articles).
+All scripts run **from the repository root**, with Python 3.12 and `pip install pyarrow httpx`.
+They read `.env` at the root. With `USE_MOCK=true` (the default if `.env` does not exist), no key is needed and the
+outputs go to `*.mock.jsonl` files, so they never pass as real data.
+**For the real files the others expect, set `USE_MOCK=false` in `.env`** (+ `GEMINI_API_KEY`, `GEMINI_MODEL`),
+and have the 16 `data/versions-XX.parquet` files (a single one only covers 281 articles).
 
-| Ordre | Commande | Lit | Écrit (dans `data/exchange/`) |
+| Order | Command | Reads | Writes (in `data/exchange/`) |
 |---|---|---|---|
-| 1 | `python decision/accounts.py` | `data/versions-*.parquet` | `accounts.jsonl` (format : `docs/TECH.md`, section 15.4) + `accounts_summary.json` → **à donner à Maël** |
-| 2 | `python decision/decide.py` | `analysis.jsonl` (Maël) | `decisions.jsonl` (format : section 15.3) |
-| 3 | `python decision/exposure.py` (peut tourner **avant** Nemotron : il prend `candidates.jsonl` si `analysis.jsonl` n'existe pas encore) | les cas, parquet, API d'audience | `exposure.jsonl` (gardé d'une fois sur l'autre : seuls les nouveaux cas sont calculés) ; après `decide.py` : `python decision/exposure.py --merge-only` ajoute `exposure` dans `decisions.jsonl` |
-| 4 | `python decision/quality.py campaign` | `candidates.jsonl` (vraies photos d'articles différents) | `synthetic_candidates.jsonl` (10 textes + 3 légendes trompeuses) → **à donner à Maël** |
-| 5 | `python decision/quality.py review-sheet` | `decisions.jsonl` | `data/manual_review.csv` (20 cas à relire à la main) |
-| 6 | `python decision/quality.py report` | tout ce qui précède | `quality.json` (servi tel quel par l'API) |
+| 1 | `python decision/accounts.py` | `data/versions-*.parquet` | `accounts.jsonl` (format: `docs/TECH.md`, section 15.4) + `accounts_summary.json` → **to give to Maël** |
+| 2 | `python decision/decide.py` | `analysis.jsonl` (Maël) | `decisions.jsonl` (format: section 15.3) |
+| 3 | `python decision/exposure.py` (can run **before** Nemotron: it takes `candidates.jsonl` if `analysis.jsonl` does not exist yet) | the cases, parquet, page views API | `exposure.jsonl` (kept from one run to the next: only new cases are computed); after `decide.py`: `python decision/exposure.py --merge-only` adds `exposure` to `decisions.jsonl` |
+| 4 | `python decision/quality.py campaign` | `candidates.jsonl` (real photos from different articles) | `synthetic_candidates.jsonl` (10 texts + 3 misleading captions) → **to give to Maël** |
+| 5 | `python decision/quality.py review-sheet` | `decisions.jsonl` | `data/manual_review.csv` (20 cases to re-read by hand) |
+| 6 | `python decision/quality.py report` | everything above | `quality.json` (served as it is by the API) |
 
-Essai sans attendre Maël : `python decision/decide.py --input decision/sample/analysis.sample.jsonl`
-(10 lignes écrites à la main, `rev_id` 1 à 10, marquées `sample`). Toute entrée autre que `analysis.jsonl` écrit dans
-`decisions.test.jsonl`, jamais dans le fichier importé par Léopold, et une ligne `sample` n'est jamais publiée.
+To try it without waiting for Maël: `python decision/decide.py --input decision/sample/analysis.sample.jsonl`
+(10 hand-written lines, `rev_id` 1 to 10, marked `sample`). Any input other than `analysis.jsonl` writes to
+`decisions.test.jsonl`, never to the file Léopold imports, and a `sample` line is never published.
 
-**Règle des deux avis (dans le code)** : `flag` seulement si Nemotron dit `suspicious: true` **et** Gemini dit `flag` ;
-`dismiss` si les deux disent non ; sinon `human_review` (désaccord, avis manquant, réponse bizarre).
-`publish` n'est possible que pour un `flag`, et jamais pour la campagne `synthetic`.
-Les cas non suspects reçoivent `dismiss` par règle (`decided_by: "rule"`), sauf un échantillon (5 %) envoyé à Gemini
-pour mesurer les désaccords. Une erreur réseau n'écrit rien : relancer reprend là où on s'était arrêté.
+**Two-model rule (in the code)**: `flag` only if Nemotron says `suspicious: true` **and** Gemini says `flag`;
+`dismiss` if both say no; otherwise `human_review` (disagreement, missing opinion, odd answer).
+`publish` is only possible for a `flag`, and never for the `synthetic` campaign.
+Non-suspicious cases get `dismiss` by rule (`decided_by: "rule"`), except a sample (5%) sent to Gemini
+to measure disagreements. A network error writes nothing: running again resumes where it stopped.
 
-**Champs ajoutés au format 15.3** (à signaler à Léopold pour l'import) : `page_id`, `title`, `kind`, `synthetic`,
+**Fields added to format 15.3** (to report to Léopold for the import): `page_id`, `title`, `kind`, `synthetic`,
 `signal_type`, `explanation`, `decided_by`, `decider_model`, `prompt_version`, `nemotron_suspicious`,
-`gemini_decision`, `disagreement`, et dans `exposure` : `still_online`, `readers_partial`, `ended_by`, `tracked_by`, `titles`.
-`tracked_by: "revert only"` = notre parseur ne voit pas le changement (ex. image dans une infobox) : seule une annulation
-termine le cas, la durée et les lecteurs peuvent être surestimés. **Ne pas mettre un tel cas en avant dans la démo.**
+`gemini_decision`, `disagreement`, and in `exposure`: `still_online`, `readers_partial`, `ended_by`, `tracked_by`, `titles`.
+`tracked_by: "revert only"` = our parser does not see the change (e.g. a picture in an infobox): only a revert
+ends the case, the duration and the readers may be overestimated. **Do not put such a case forward in the demo.**
 
-**Fin d'un cas (exposition)** : la première version suivante qui revient au texte d'avant (même `sha1`), ou où le contenu
-suspect a disparu (légende/fichier pour une image, nombre de `<ref>` revenu pour les sources, moins de la moitié des mots
-introduits pour le texte), en se basant sur la version suspecte elle-même. Sinon « toujours en ligne » jusqu'au 01/10/2026 (fin des données). Les lecteurs sont un
-**plafond** (vues de tout l'article), comptés avec le titre de chaque période, `null` avant juillet 2015.
+**End of a case (exposure)**: the first later version that goes back to the earlier text (same `sha1`), or where the
+suspicious content is gone (caption/file for a picture, number of `<ref>` back for sources, less than half of the
+introduced words for text), judged from the suspicious version itself. Otherwise "still online" until 1 Oct 2026
+(end of the data). Readers are an **upper bound** (views of the whole article), counted with the title of each
+period, `null` before July 2015.
 
-**Campagne de test** : `synthetic: true` est la seule étiquette. `decide.py` la retire avant d'appeler Gemini ;
-Maël doit faire de même avant Nemotron, sinon le test se note lui-même.
+**Test campaign**: `synthetic: true` is the only label. `decide.py` removes it before calling Gemini;
+Maël must do the same before Nemotron, otherwise the test grades itself.
 
-À remplir par l'équipe, jamais inventé : `data/manual_review.csv`.
+To be filled in by the team, never invented: `data/manual_review.csv`.

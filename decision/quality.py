@@ -137,9 +137,9 @@ def review_sheet(n: int = 20) -> None:
     # ";" and a BOM: French Excel then opens it in columns, with the Finnish accents right.
     with REVIEW_SHEET.open("w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f, delimiter=";")
-        w.writerow(["n", "rev_id", "article", "type", "titre (Gemini)", "résumé (Gemini)", "avis Nemotron",
-                    "texte ajouté (finnois)", "texte retiré (finnois)", "légende avant", "légende après",
-                    "lien diff", "correct (yes/no)", "note"])
+        w.writerow(["n", "rev_id", "article", "type", "headline (Gemini)", "summary (Gemini)", "Nemotron report",
+                    "added text (Finnish)", "removed text (Finnish)", "caption before", "caption after",
+                    "diff link", "correct (yes/no)", "note"])
         for i, d in enumerate(flags[:n], 1):
             c = cases.get(d["rev_id"], {})
             img = c.get("image") or {}

@@ -1,147 +1,147 @@
-# TimeProof — référence technique
+# TimeProof — technical reference
 
-> Tout ce qu'il faut pour coder sa partie sans redemander. Les formats JSONL échangés entre modules sont en [section 15](#15-formats-déchange-jsonl).
-> **Testé** = vérifié par l'équipe vendredi soir. Le reste est une décision d'équipe à appliquer telle quelle.
+> Everything needed to code one's part without asking again. The JSONL formats exchanged between modules are in [section 15](#15-exchange-formats-jsonl).
+> **Tested** = checked by the team on the Friday evening. The rest is a team decision, to apply as written.
 
-## Sommaire
-1. [Pile technique et arborescence](#1-pile-technique-et-arborescence)
-2. [Variables d'environnement](#2-variables-denvironnement)
-3. [Les données](#3-les-données)
-4. [Schéma de la base](#4-schéma-de-la-base)
-5. [Charger l'historique avec les vraies dates (Léopold)](#5-charger-lhistorique-avec-les-vraies-dates-léopold)
-6. [Lire le wikitexte : images, sources, mots, coordination (Maël)](#6-lire-le-wikitexte--images-sources-mots-coordination-maël)
-7. [Appeler Nemotron (Maël)](#7-appeler-nemotron-maël)
-8. [Appeler Gemini (Nathanaël)](#8-appeler-gemini-nathanaël)
-9. [Les API Wikimedia (tout le monde)](#9-les-api-wikimedia-tout-le-monde)
-10. [Profil des comptes, exposition, fiabilité (Nathanaël)](#10-profil-des-comptes-exposition-fiabilité-nathanaël)
-11. [L'API du site : formats de réponse (Léopold → Eléa)](#11-lapi-du-site--formats-de-réponse-léopold--eléa)
-12. [La Lens (Eléa)](#12-la-lens-eléa)
-13. [Déploiement : VPS + CRACI (Léopold, Eléa)](#13-déploiement--vps--craci-léopold-eléa)
-14. [Pièges déjà rencontrés](#14-pièges-déjà-rencontrés)
-15. [Formats d'échange (JSONL)](#15-formats-déchange-jsonl)
+## Contents
+1. [Stack and file tree](#1-stack-and-file-tree)
+2. [Environment variables](#2-environment-variables)
+3. [The data](#3-the-data)
+4. [Database schema](#4-database-schema)
+5. [Loading the history with the real dates (Léopold)](#5-loading-the-history-with-the-real-dates-léopold)
+6. [Reading the wikitext: pictures, sources, words, coordination (Maël)](#6-reading-the-wikitext-pictures-sources-words-coordination-maël)
+7. [Calling Nemotron (Maël)](#7-calling-nemotron-maël)
+8. [Calling Gemini (Nathanaël)](#8-calling-gemini-nathanaël)
+9. [The Wikimedia APIs (everyone)](#9-the-wikimedia-apis-everyone)
+10. [Account patterns, exposure, reliability (Nathanaël)](#10-account-patterns-exposure-reliability-nathanaël)
+11. [The site's API: response formats (Léopold → Eléa)](#11-the-sites-api-response-formats-léopold--eléa)
+12. [The Lens (Eléa)](#12-the-lens-eléa)
+13. [Deployment: VPS + CRACI (Léopold, Eléa)](#13-deployment-vps--craci-léopold-eléa)
+14. [Pitfalls already met](#14-pitfalls-already-met)
+15. [Exchange formats (JSONL)](#15-exchange-formats-jsonl)
 
 ---
 
-## 1. Pile technique et arborescence
+## 1. Stack and file tree
 
-| Couche | Choix | Pourquoi |
+| Layer | Choice | Why |
 |---|---|---|
-| Base | **MariaDB `mariadb:lts`** (Docker), tables **système-versionnées** | Le cœur du challenge MariaDB ; testé en 12.3.3 |
-| Serveur | **Python 3.12 + FastAPI + uvicorn**, accès base avec **PyMySQL** | Simple, tout le monde lit du Python |
-| Scripts d'analyse | **Python 3.12 + pyarrow + httpx** | Lire les parquet, appeler les API |
-| Site | **HTML + CSS + JS simples**, sans framework, servi **par FastAPI** comme fichiers statiques | Pas d'étape de build, pas de serveur en plus |
-| IA | **Nemotron 3.5 Super VL** (serveur fourni, hébergé chez Verda) + **Gemini** (API Google) | Les deux parlent le format OpenAI |
-| Hébergement | **VPS Hostinger KVM 2** (2 vCPU, 8 Go RAM, 100 Go disque), Docker Compose | Exigé par le challenge Hostinger |
-| CI/CD | **CRACI** (`runs-on: craci`) : vérifie et déploie à chaque push sur `main` | Tech challenge CRACI |
+| Database | **MariaDB `mariadb:lts`** (Docker), **system-versioned** tables | The heart of the MariaDB challenge; tested on 12.3.3 |
+| Server | **Python 3.12 + FastAPI + uvicorn**, database access with **PyMySQL** | Simple, everyone reads Python |
+| Analysis scripts | **Python 3.12 + pyarrow + httpx** | Read the parquet files, call the APIs |
+| Site | **Plain HTML + CSS + JS**, no framework, served **by FastAPI** as static files | No build step, no extra server |
+| Models | **Nemotron 3.5 Super VL** (server provided, hosted at Verda) + **Gemini** (Google API) | Both speak the OpenAI format |
+| Hosting | **Hostinger VPS KVM 2** (2 vCPU, 8 GB RAM, 100 GB disk), Docker Compose | Required by the Hostinger challenge |
+| CI/CD | **CRACI** (`runs-on: craci`): checks and deploys on every push to `main` | CRACI tech challenge |
 
 ```
 TimeProof/
-├── docs/                     ces documents
-├── docker-compose.yml        Léopold : services db + server
-├── .env.example              Léopold : liste des variables, sans valeurs
+├── docs/                     these documents
+├── docker-compose.yml        Léopold: db + server services
+├── .env.example              Léopold: list of variables, without values
 ├── .gitignore                Léopold
-├── db/schema.sql             Léopold : section 4
-├── server/                   Léopold : FastAPI (main.py), load_versions.py, import_jsonl.py, watch.py, wikitext.py
-├── analysis/                 Maël : find_candidates.py, fetch_images.py, run_nemotron.py
-├── decision/                 Nathanaël : decide.py, accounts.py, exposure.py, quality.py
-├── web/                      Eléa : index.html, case.html, timemachine.html, quality.html, style.css, app.js, mock/*.json
-├── lens/                     Eléa : build_bookmarklet.py, lens.js, bookmarklet.txt
-├── .github/workflows/        Eléa : deploy.yml (CRACI)
-└── data/                     JAMAIS dans git : versions-XX.parquet, exchange/*.jsonl
+├── db/schema.sql             Léopold: section 4
+├── server/                   Léopold: FastAPI (main.py), load_versions.py, import_jsonl.py, watch.py, wikitext.py
+├── analysis/                 Maël: find_candidates.py, fetch_images.py, run_nemotron.py
+├── decision/                 Nathanaël: decide.py, accounts.py, exposure.py, quality.py
+├── web/                      Eléa: index.html, case.html, timemachine.html, quality.html, style.css, app.js, mock/*.json
+├── lens/                     Eléa: build_bookmarklet.py, lens.js, bookmarklet.txt
+├── .github/workflows/        Eléa: deploy.yml (CRACI)
+└── data/                     NEVER in git: versions-XX.parquet, exchange/*.jsonl
 ```
 
-**Ports** : le serveur écoute sur 8000 dans son conteneur, publié en **80** sur le VPS (8000 en local). **MariaDB n'est jamais publié** (pas de `ports:` pour `db`).
+**Ports**: the server listens on 8000 in its container, published on **80** on the VPS (8000 locally). **MariaDB is never published** (no `ports:` for `db`).
 
-**Le site est servi par FastAPI** : les routes `/api/...` d'abord, puis `app.mount("/", StaticFiles(directory="web", html=True))`. Le dossier `web/` est monté dans le conteneur.
+**The site is served by FastAPI**: the `/api/...` routes first, then `app.mount("/", StaticFiles(directory="web", html=True))`. The `web/` folder is mounted in the container.
 
-## 2. Variables d'environnement
+## 2. Environment variables
 
-Fichier `.env` à la racine (jamais committé ; `.env.example` sans valeurs est committé). Les clés circulent **en message privé Discord**.
+`.env` file at the root (never committed; `.env.example` without values is committed). Keys travel **by private Discord message**.
 
 ```
-# Base
+# Database
 DB_HOST=db
 DB_PORT=3306
 DB_NAME=timeproof
 DB_USER=timeproof
 DB_PASSWORD=
 DB_ROOT_PASSWORD=
-APP_PORT=8000                 # 80 sur le VPS
+APP_PORT=8000                 # 80 on the VPS
 
-# true = aucune clé nécessaire, les appels externes renvoient des données simulées au bon format
+# true = no key needed, external calls return simulated data in the right format
 USE_MOCK=true
 
-# Nemotron (serveur fourni, hébergé chez Verda) — testé
+# Nemotron (server provided, hosted at Verda) — tested
 VERDA_INFERENCE_KEY=
 NEMOTRON_BASE_URL=https://containers.datacrunch.io/nemotron-3-5-super-vl-b300/v1
 NEMOTRON_MODEL=nemotron-3.5-super-vl
 
-# Gemini — clé sur aistudio.google.com ; copier l'identifiant d'un modèle "Flash" depuis AI Studio
+# Gemini — key from aistudio.google.com; copy a "Flash" model id from AI Studio
 GEMINI_API_KEY=
 GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
 GEMINI_MODEL=
 
-# Identifiant envoyé aux API Wikimedia (sans lui : erreur 429) — testé
+# Sent to the Wikimedia APIs (without it: HTTP 429) — tested
 WIKI_USER_AGENT=TimeProofBot/0.1 (https://hackjunction.com; Junction 2026 hackathon prototype)
 ```
 
-Clé de secours si le serveur Nemotron tombe : une clé `nvapi-…` de build.nvidia.com, adresse `https://integrate.api.nvidia.com/v1`, modèle `nvidia/nemotron-3.5-super-vl-120b-a12b` (≈ 40 appels/min par clé). **La clé Verda ne marche pas à cette adresse** (erreur 401, testé).
+Backup key if the Nemotron server goes down: an `nvapi-…` key from build.nvidia.com, address `https://integrate.api.nvidia.com/v1`, model `nvidia/nemotron-3.5-super-vl-120b-a12b` (≈ 40 calls/min per key). **The Verda key does not work at that address** (error 401, tested).
 
-## 3. Les données
+## 3. The data
 
-Source : [MariaDB/mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets), jeu **M** (« every version »).
+Source: [MariaDB/mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets), set **M** ("every version").
 
-- 16 fichiers : `https://github.com/MariaDB/mariadb-wikipedia-datasets/releases/download/m-2026-10/versions-01.parquet` … `versions-16.parquet` (315 Mo en tout ; `SHA256SUMS` dans la même release).
-- Le fichier 01 fait 20 Mo, contient **281 articles, 103 607 versions**, dont *Suomen sisällissota* (`page_id` 1150, 3 357 versions), *Talvisota* (1256), *Urho Kekkonen* (1275), *Carl Gustaf Emil Mannerheim* (6021).
-- Les lignes sont rangées **par article, de la plus ancienne à la plus récente**.
+- 16 files: `https://github.com/MariaDB/mariadb-wikipedia-datasets/releases/download/m-2026-10/versions-01.parquet` … `versions-16.parquet` (315 MB in total; `SHA256SUMS` in the same release).
+- File 01 is 20 MB and holds **281 articles, 103,607 versions**, including *Suomen sisällissota* (`page_id` 1150, 3,357 versions), *Talvisota* (1256), *Urho Kekkonen* (1275), *Carl Gustaf Emil Mannerheim* (6021).
+- Rows are ordered **by article, from the oldest to the most recent**.
 
-| Colonne | Type | Contenu |
+| Column | Type | Content |
 |---|---|---|
-| `page_id` | uint32 | Identifiant Wikipédia de l'article |
-| `title` | string | Titre **à cette version** (les articles sont parfois renommés) |
-| `rev_id` | uint32 | Identifiant de la version (`https://fi.wikipedia.org/?oldid=<rev_id>`) |
-| `parent_id` | uint32 | Version précédente |
-| `timestamp` | timestamp[ms, tz=UTC] | Date de la modification (UTC) |
-| `user` | string | Nom du compte, adresse IP ou compte temporaire `~2026-…` |
-| `anonymous` | bool | Modification anonyme (19 % des versions) |
-| `comment` | string | Résumé de modification |
-| `minor` | bool | Marquée « mineure » |
-| `sha1` | string | Empreinte du texte : **même sha1 = même texte** (sert à repérer les annulations) |
-| `bytes` | uint32 | Taille du texte |
-| `text` | string | **Wikitexte brut** (pas de Markdown propre pour les vieilles versions) |
+| `page_id` | uint32 | Wikipedia id of the article |
+| `title` | string | Title **at this version** (articles are sometimes renamed) |
+| `rev_id` | uint32 | Id of the version (`https://fi.wikipedia.org/?oldid=<rev_id>`) |
+| `parent_id` | uint32 | Previous version |
+| `timestamp` | timestamp[ms, tz=UTC] | Date of the edit (UTC) |
+| `user` | string | Account name, IP address or temporary account `~2026-…` |
+| `anonymous` | bool | Anonymous edit (19% of versions) |
+| `comment` | string | Edit summary |
+| `minor` | bool | Marked "minor" |
+| `sha1` | string | Fingerprint of the text: **same sha1 = same text** (used to spot reverts) |
+| `bytes` | uint32 | Size of the text |
+| `text` | string | **Raw wikitext** (no clean Markdown for old versions) |
 
-**Lire un parquet sans saturer la mémoire** (le texte du fichier 01 fait environ 760 Mo) :
+**Reading a parquet file without filling the memory** (the text of file 01 is about 760 MB):
 ```python
 import pyarrow.parquet as pq
 pf = pq.ParquetFile("data/versions-01.parquet")
-for batch in pf.iter_batches(batch_size=2000):            # par paquets
+for batch in pf.iter_batches(batch_size=2000):            # in batches
     for row in batch.to_pylist():
         ...
-# ou seulement certains articles :
+# or only some articles:
 table = pq.read_table("data/versions-01.parquet", filters=[("page_id", "in", [1150, 1256])])
 ```
 
-**Une annulation** (« revert ») est une version dont le `sha1` est égal à celui d'une version **antérieure du même article**, mais différent de celui de la version juste avant.
+**A revert** is a version whose `sha1` equals that of an **earlier version of the same article**, but differs from that of the version just before.
 
-Mesures faites vendredi sur le fichier 01, annulations exclues :
-- 5 771 versions modifient au moins une image ;
-- 2 315 légendes modifiées et 1 442 remplacements d'image ;
-- 1 605 versions retirent des références (11 421 références retirées) ;
-- 274 articles sur 281 ont au moins un changement d'image.
+Measured on Friday on file 01, reverts excluded:
+- 5,771 versions change at least one picture;
+- 2,315 changed captions and 1,442 picture replacements;
+- 1,605 versions remove references (11,421 references removed);
+- 274 articles out of 281 have at least one picture change.
 
-## 4. Schéma de la base
+## 4. Database schema
 
-Contenu de `db/schema.sql` (Léopold). La table `article` reprend le schéma de l'exemple officiel MariaDB ([mariadb-system-versioning-wikipedia](https://github.com/MariaDB/mariadb-system-versioning-wikipedia), licence MIT, à créditer dans le README).
+Content of `db/schema.sql` (Léopold). The `article` table follows the schema of the official MariaDB example ([mariadb-system-versioning-wikipedia](https://github.com/MariaDB/mariadb-system-versioning-wikipedia), MIT license, to credit in the README).
 
 ```sql
--- Une ligne par article = ce que Wikipédia affiche aujourd'hui ; chaque version passée
--- est une ligne d'historique, écrite avec la vraie date Wikipédia.
+-- One row per article = what Wikipedia shows today; each past version
+-- is a history row, written with the real Wikipedia date.
 CREATE TABLE IF NOT EXISTS article (
   page_id    INT UNSIGNED NOT NULL,
   title      VARCHAR(255) NOT NULL,
   rev_id     INT UNSIGNED NOT NULL,
   parent_id  INT UNSIGNED,
-  user       VARCHAR(255),             -- reste en base ; jamais renvoyé par l'API publique
+  user       VARCHAR(255),             -- stays in the database; never returned by the public API
   anonymous  BOOL NOT NULL DEFAULT 0,
   comment    TEXT,
   minor      BOOL NOT NULL DEFAULT 0,
@@ -153,15 +153,15 @@ CREATE TABLE IF NOT EXISTS article (
   PERIOD FOR SYSTEM_TIME (row_start, row_end),
   PRIMARY KEY (page_id),
   KEY (sha1), KEY (rev_id), KEY (user),
-  KEY start_key (page_id, row_start)   -- rend rapides les dates anciennes "as of"
+  KEY start_key (page_id, row_start)   -- makes old "as of" dates fast
 ) CHARACTER SET utf8mb4 WITH SYSTEM VERSIONING;
 
--- Importés depuis data/exchange/*.jsonl par server/import_jsonl.py
+-- Imported from data/exchange/*.jsonl by server/import_jsonl.py
 CREATE TABLE IF NOT EXISTS candidate (
   rev_id INT UNSIGNED PRIMARY KEY, page_id INT UNSIGNED NOT NULL, title VARCHAR(255),
   kind ENUM('framing','image','sources','coordination') NOT NULL,
   edited_at DATETIME(6) NOT NULL, account_hash CHAR(16), synthetic BOOL NOT NULL DEFAULT 0,
-  data JSON NOT NULL,                  -- la ligne JSONL complète
+  data JSON NOT NULL,                  -- the full JSONL line
   KEY (page_id), KEY (kind)
 ) CHARACTER SET utf8mb4;
 
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS analysis (
   suspicious BOOL, data JSON NOT NULL
 ) CHARACTER SET utf8mb4;
 
--- Historisée : on peut prouver quand un cas a été publié ou retiré
+-- Versioned: we can prove when a case was published or withdrawn
 CREATE TABLE IF NOT EXISTS decision (
   rev_id INT UNSIGNED PRIMARY KEY,
   decision ENUM('flag','dismiss','human_review') NOT NULL,
@@ -186,71 +186,71 @@ CREATE TABLE IF NOT EXISTS account_profile (
 ) CHARACTER SET utf8mb4;
 ```
 
-Pour l'import, une ligne JSONL donne une ligne de table : les colonnes servent à filtrer et à trier, la ligne complète va dans `data` (JSON). Les chiffres de fiabilité ne vont pas en base : Nathanaël écrit `data/exchange/quality.json`, que l'API renvoie tel quel.
+For the import, one JSONL line gives one table row: the columns are used to filter and sort, the full line goes into `data` (JSON). The reliability figures do not go into the database: Nathanaël writes `data/exchange/quality.json`, which the API returns as it is.
 
-## 5. Charger l'historique avec les vraies dates (Léopold)
+## 5. Loading the history with the real dates (Léopold)
 
-**Le problème** : une table système-versionnée date chaque ligne **au moment de l'insertion**. Si on insère normalement, toutes les versions seraient datées de samedi, et « as of 2015 » ne renverrait rien.
+**The problem**: a system-versioned table dates each row **at the time of the insert**. With a normal insert, every version would be dated Saturday, and "as of 2015" would return nothing.
 
-**La solution** (méthode de l'exemple officiel MariaDB, testée vendredi) : écrire soi-même `row_start` et `row_end`.
+**The solution** (method of the official MariaDB example, tested on Friday): write `row_start` and `row_end` ourselves.
 
 ```sql
-SET time_zone = '+00:00';                       -- Wikipédia est en UTC
-SET system_versioning_insert_history = 1;      -- autorise l'écriture de row_start/row_end
--- chaque version sauf la dernière : début = sa date, fin = la date de la version suivante
+SET time_zone = '+00:00';                       -- Wikipedia is in UTC
+SET system_versioning_insert_history = 1;      -- allows writing row_start/row_end
+-- every version except the last: start = its date, end = the date of the next version
 INSERT INTO article (page_id, title, rev_id, parent_id, user, anonymous, comment, minor, sha1, len, text, row_start, row_end)
 VALUES (...);
--- la version actuelle : seulement le début (MariaDB met la fin "toujours en cours")
+-- the current version: only the start (MariaDB sets the end to "still current")
 INSERT INTO article (page_id, title, rev_id, parent_id, user, anonymous, comment, minor, sha1, len, text, row_start)
 VALUES (...);
 SET system_versioning_insert_history = 0;
 ```
 
-L'algorithme, par article :
-1. Trier les versions par (`timestamp`, `rev_id`).
-2. Si deux versions ont la même seconde, ajouter **1 microseconde** à la seconde, sinon une version finirait là où elle commence.
-3. Insérer par **lots d'au plus ~8 Mo de texte** (pas par nombre de lignes) et lancer MariaDB avec `--max-allowed-packet=256M`.
-4. Une transaction par article ; si l'article est déjà en base, passer au suivant, pour pouvoir relancer après un plantage.
+The algorithm, per article:
+1. Sort the versions by (`timestamp`, `rev_id`).
+2. If two versions share the same second, add **1 microsecond** to the second one, otherwise a version would end where it starts.
+3. Insert in **batches of at most ~8 MB of text** (not by row count) and start MariaDB with `--max-allowed-packet=256M`.
+4. One transaction per article; if the article is already in the database, move on to the next one, so the load can be restarted after a crash.
 
-**Mesuré vendredi** : 3 357 versions de l'article 1150 en **61 s**, pic d'environ **1,3 Go** de RAM. Tout M est **estimé à 4–6 h** (extrapolation, peut-être plus sur 2 vCPU) → à lancer **en fond** sur le VPS, fichier par fichier, avec un journal.
+**Measured on Friday**: 3,357 versions of article 1150 in **61 s**, peak of about **1.3 GB** of RAM. The whole M set is **estimated at 4–6 h** (extrapolation, maybe more on 2 vCPU) → to run **in the background** on the VPS, file by file, with a log.
 
-**Le script tourne DANS le conteneur `server`**. Sur le VPS lui-même, la base n'est pas joignable (`db` n'existe que dans le réseau Docker) et `pyarrow` n'est pas installé. Le dossier `server/` est copié dans `/app` du conteneur, et les données sont montées dans `/data` :
+**The script runs INSIDE the `server` container**. On the VPS itself the database cannot be reached (`db` only exists in the Docker network) and `pyarrow` is not installed. The `server/` folder is copied into `/app` in the container, and the data is mounted on `/data`:
 ```bash
-# 1. vérifier d'abord que les tables existent
+# 1. first check that the tables exist
 docker compose exec -T db mariadb -u timeproof -p"$DB_PASSWORD" timeproof -e "SHOW TABLES"
-# 2. lancer le chargement des 16 fichiers en fond
+# 2. load the 16 files in the background
 nohup bash -c 'for i in $(seq -w 1 16); do docker compose exec -T server python load_versions.py /data/versions-$i.parquet; done' > load.log 2>&1 &
 tail -f load.log
 ```
 
-**Création des tables** : `db/schema.sql` est monté dans le service `db` sur `/docker-entrypoint-initdb.d/`. MariaDB l'exécute **une seule fois, au premier démarrage, quand le volume est vide**. Pour changer le schéma plus tard : `docker compose down -v` (efface la base !) ou un `ALTER TABLE` à la main (sur une table historisée : `SET system_versioning_alter_history = KEEP;` d'abord).
+**Creating the tables**: `db/schema.sql` is mounted in the `db` service on `/docker-entrypoint-initdb.d/`. MariaDB runs it **only once, on first start, when the volume is empty**. To change the schema later: `docker compose down -v` (erases the database!) or an `ALTER TABLE` by hand (on a versioned table: `SET system_versioning_alter_history = KEEP;` first).
 
-**Requêtes clés** :
+**Key queries**:
 ```sql
--- l'article tel qu'il était le 1er juin 2015 (date ET heure obligatoires)
+-- the article as it stood on 1 June 2015 (date AND time required)
 SELECT title, rev_id, row_start, text FROM article
   FOR SYSTEM_TIME AS OF TIMESTAMP '2015-06-01 00:00:00' WHERE page_id = 1150;
--- toutes les versions, avec les annulations
+-- every version, with the reverts
 SELECT rev_id, row_start, sha1 <> LAG(sha1) OVER (ORDER BY row_start)
          AND MIN(row_start) OVER (PARTITION BY sha1) < row_start AS is_revert
 FROM article FOR SYSTEM_TIME ALL WHERE page_id = 1150 ORDER BY row_start;
 ```
 
-**Test qui doit passer** : `as_of=2006-01-01` sur 1150 renvoie une version de 2005 (vérifié vendredi : rev 472288, 11/10/2005).
+**Test that must pass**: `as_of=2006-01-01` on 1150 returns a version from 2005 (checked on Friday: rev 472288, 11 Oct 2005).
 
-**Après le chargement**, une nouvelle version (veille) s'ajoute avec un simple `UPDATE article SET … WHERE page_id = …` : MariaDB archive l'ancienne version tout seul.
+**After the load**, a new version (live watch) is added with a plain `UPDATE article SET … WHERE page_id = …`: MariaDB archives the old version by itself.
 
-## 6. Lire le wikitexte : images, sources, mots, coordination (Maël)
+## 6. Reading the wikitext: pictures, sources, words, coordination (Maël)
 
-**Toujours analyser le wikitexte brut AVANT de le nettoyer**, car le nettoyage efface les images et les références.
+**Always analyse the raw wikitext BEFORE cleaning it**, because cleaning erases the pictures and the references.
 
-**Images** : liens `[[Tiedosto:Nom.jpg|thumb|…|Légende]]` (préfixes : `Tiedosto`, `Kuva`, `File`, `Image`). La légende est le **dernier** morceau après `|`. Elle peut contenir des `[[liens]]`, donc on compte les crochets au lieu d'utiliser une simple expression régulière :
+**Pictures**: links `[[Tiedosto:Name.jpg|thumb|…|Caption]]` (prefixes: `Tiedosto`, `Kuva`, `File`, `Image`). The caption is the **last** piece after `|`. It can contain `[[links]]`, so we count the brackets instead of using a simple regular expression:
 ```python
 import re
 PREFIX = re.compile(r"\[\[\s*(Tiedosto|Kuva|File|Image)\s*:", re.I)
 
 def images(text: str) -> dict[str, str]:
-    """{nom_de_fichier: légende}"""
+    """{file_name: caption}"""
     out, i = {}, 0
     while (m := PREFIX.search(text, i)):
         depth, j = 0, m.start()
@@ -267,26 +267,26 @@ def images(text: str) -> dict[str, str]:
         i = j
     return out
 ```
-Comparer avec la version précédente : fichier ajouté, retiré, remplacé, ou **légende modifiée** (même fichier, légende différente et non vide des deux côtés). Limite : les images placées dans les modèles (`{{Infobox …|kuva=…}}`) ne sont pas vues.
+Compare with the previous version: file added, removed, replaced, or **caption changed** (same file, different caption, not empty on either side). Limit: pictures placed inside templates (`{{Infobox …|kuva=…}}`) are not seen.
 
-**Sources** : `len(re.findall(r"<ref[\s>]", text, re.I))`. Si le nombre baisse → `kind: "sources"`.
+**Sources**: `len(re.findall(r"<ref[\s>]", text, re.I))`. If the count goes down → `kind: "sources"`.
 
-**Nettoyer pour comparer les mots** : retirer les commentaires `<!-- -->`, les `<ref>…</ref>`, les tableaux `{| … |}`, les modèles `{{…}}` (en boucle, car ils s'imbriquent), les liens de fichiers ; remplacer `[[cible|texte]]` par `texte`, et retirer `'''` et `''`. Puis comparer **mot à mot**, uniquement dans les paragraphes qui ont changé (`difflib.SequenceMatcher` sur les listes de mots), sinon une faute corrigée compte comme un paragraphe entier.
+**Cleaning to compare words**: remove the `<!-- -->` comments, the `<ref>…</ref>`, the `{| … |}` tables, the `{{…}}` templates (in a loop, because they nest), the file links; replace `[[target|text]]` with `text`, and remove `'''` and `''`. Then compare **word by word**, only in the paragraphs that changed (`difflib.SequenceMatcher` on the word lists), otherwise a fixed typo counts as a whole paragraph.
 
-**Mots surveillés pour la dérive** (1918, à compléter avec l'aide de Gemini pour d'autres thèmes) : `vapaussota` (guerre de libération), `sisällissota` (guerre civile), `kansalaissota`, `luokkasota` (guerre de classes), `punakapina` (rébellion rouge), `veljessota` (guerre fratricide). Le signal est le **rapport** entre termes au fil du temps, pas le compte brut. Mesuré sur 1150 : *sisällissota* / *vapaussota* passe d'environ 1:1 (2005) à environ 3:1 (2026).
+**Watched words for framing drift** (1918, to extend with Gemini's help for other themes): `vapaussota` (war of liberation), `sisällissota` (civil war), `kansalaissota`, `luokkasota` (class war), `punakapina` (red rebellion), `veljessota` (fratricidal war). The signal is the **ratio** between terms over time, not the raw count. Measured on 1150: *sisällissota* / *vapaussota* goes from about 1:1 (2005) to about 3:1 (2026).
 
-**Coordination (version simple, sans IA)** :
-1. Pour chaque texte ajouté d'au moins 20 mots : minuscules, sans ponctuation, découpé en suites de 8 mots consécutifs, chacune transformée en empreinte (`hash`).
-2. On regroupe : une même suite ajoutée par **au moins 2 comptes différents**, sur **au moins 2 articles différents**, en **14 jours** → `kind: "coordination"`.
-3. On ignore les annulations, les modifications mineures et les robots officiels.
+**Coordination (simple version, no model)**:
+1. For each added text of at least 20 words: lower case, no punctuation, cut into runs of 8 consecutive words, each turned into a fingerprint (`hash`).
+2. Group them: the same run added by **at least 2 different accounts**, on **at least 2 different articles**, within **14 days** → `kind: "coordination"`.
+3. Reverts, minor edits and official bots are ignored.
 
-**Priorités pour Nemotron** (ne pas lancer 100 000 appels) : d'abord les légendes modifiées et les remplacements d'image des articles sensibles (1918, guerres, présidents, Carélie), puis la coordination, puis les sources retirées, puis la dérive.
+**Priorities for Nemotron** (do not launch 100,000 calls): first the changed captions and picture replacements of sensitive articles (1918, wars, presidents, Karelia), then coordination, then removed sources, then drift.
 
-**Toutes les annulations et modifications mineures sont exclues** du tri. L'empreinte d'un compte : `hashlib.sha256(user.encode()).hexdigest()[:16]`.
+**All reverts and minor edits are excluded** from the sorting. The fingerprint of an account: `hashlib.sha256(user.encode()).hexdigest()[:16]`.
 
-## 7. Appeler Nemotron (Maël)
+## 7. Calling Nemotron (Maël)
 
-**Testé vendredi** : comprend le finnois (il a repéré « guerre civile » → « guerre de libération » et expliqué le changement de cadrage), décrit une photo et a démasqué une fausse légende. Durée : **1,3 s** pour le texte, **2,3 s** avec image. L'image peut être envoyée **par son lien** (miniature Wikimedia).
+**Tested on Friday**: it understands Finnish (it spotted "civil war" → "war of liberation" and explained the change of framing), describes a photo and exposed a false caption. Duration: **1.3 s** for text, **2.3 s** with a picture. The picture can be sent **by its link** (Wikimedia thumbnail).
 
 ```python
 import json, os, httpx
@@ -304,19 +304,19 @@ def ask_nemotron(prompt: str, image_url: str | None = None) -> dict:
         timeout=180,
     )
     r.raise_for_status()
-    text = r.json()["choices"][0]["message"].get("content") or ""   # le raisonnement éventuel est dans "reasoning_content"
-    return json.loads(text[text.find("{"): text.rfind("}") + 1])    # ne garder que le JSON
+    text = r.json()["choices"][0]["message"].get("content") or ""   # any reasoning is in "reasoning_content"
+    return json.loads(text[text.find("{"): text.rfind("}") + 1])    # keep only the JSON
 ```
 
-La consigne de l'enquêteur est dans `analysis/run_nemotron.py` (`INVESTIGATOR_PROMPT`). Le message utilisateur contient la ligne de `candidates.jsonl` (texte ajouté/retiré, légendes, compte en version anonymisée).
+The investigator's instructions are in `analysis/run_nemotron.py` (`INVESTIGATOR_PROMPT`). The user message holds the `candidates.jsonl` line (added/removed text, captions, account in anonymous form).
 
-**Limites** : serveur **partagé** entre équipes (limite d'appels inconnue → demander à Verda sur Discord), donc pas plus de 2 à 4 appels en parallèle sans leur accord. Écrire chaque résultat dès qu'il arrive dans `analysis.jsonl`, et sauter les `rev_id` déjà traités au redémarrage.
+**Limits**: the server is **shared** between teams (unknown call limit → ask Verda on Discord), so no more than 2 to 4 calls at once without their agreement. Write each result into `analysis.jsonl` as soon as it arrives, and skip the `rev_id`s already done on restart.
 
-## 8. Appeler Gemini (Nathanaël)
+## 8. Calling Gemini (Nathanaël)
 
-Même format que Nemotron (compatibilité OpenAI de Google, vérifiée vendredi dans leur documentation) :
+Same format as Nemotron (Google's OpenAI compatibility, checked on Friday in their documentation):
 ```python
-r = httpx.post(os.environ["GEMINI_BASE_URL"] + "chat/completions",       # l'adresse finit déjà par "/"
+r = httpx.post(os.environ["GEMINI_BASE_URL"] + "chat/completions",       # the address already ends with "/"
                headers={"Authorization": f"Bearer {os.environ['GEMINI_API_KEY']}"},
                json={"model": os.environ["GEMINI_MODEL"], "temperature": 0.2,
                      "messages": [{"role": "system", "content": DECIDER_PROMPT},
@@ -324,52 +324,52 @@ r = httpx.post(os.environ["GEMINI_BASE_URL"] + "chat/completions",       # l'adr
                timeout=120)
 ```
 
-La consigne du décideur est dans `decision/decide.py` (`DECIDER_PROMPT`).
+The decider's instructions are in `decision/decide.py` (`DECIDER_PROMPT`).
 
-**Règle des deux avis, appliquée dans le code et pas laissée au modèle** :
-- `flag` si Gemini dit `flag` **et** Nemotron dit `suspicious: true` ;
-- `dismiss` si les deux disent « pas suspect » ;
-- `human_review` dans tous les autres cas, **et pour toute réponse hors de ces 3 valeurs** ;
-- `publish` n'est possible que pour un `flag`.
+**Two-model rule, applied in the code and not left to the model**:
+- `flag` if Gemini says `flag` **and** Nemotron says `suspicious: true`;
+- `dismiss` if both say "not suspicious";
+- `human_review` in every other case, **and for any answer outside these 3 values**;
+- `publish` is only possible for a `flag`.
 
-**Coût** : appeler Gemini seulement sur les cas « suspects » de Nemotron, plus un échantillon d'environ 50 non-suspects (pour mesurer les désaccords). **Tous les autres** (Nemotron dit « pas suspect » et le cas n'est pas tiré au sort) reçoivent `dismiss` **par règle**, sans appel à Gemini, avec `"decided_by": "rule"` dans la ligne.
+**Cost**: call Gemini only on the cases Nemotron finds "suspicious", plus a sample of about 50 non-suspicious ones (to measure disagreements). **All the others** (Nemotron says "not suspicious" and the case is not drawn) get `dismiss` **by rule**, without a call to Gemini, with `"decided_by": "rule"` in the line.
 
-## 9. Les API Wikimedia (tout le monde)
+## 9. The Wikimedia APIs (everyone)
 
-**Toujours** envoyer l'en-tête `User-Agent: $WIKI_USER_AGENT`. Avec un identifiant générique, on a eu l'**erreur 429** vendredi. Pas plus de quelques requêtes par seconde.
+**Always** send the header `User-Agent: $WIKI_USER_AGENT`. With a generic identifier we got **error 429** on Friday. No more than a few requests per second.
 
-| Besoin | Adresse |
+| Need | Address |
 |---|---|
-| Miniature + auteur + licence d'une image (≤ 50 titres par requête) | `https://fi.wikipedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url\|extmetadata&iiurlwidth=800&titles=Tiedosto:A.jpg\|Tiedosto:B.jpg` → `thumburl`, `extmetadata.Artist`, `extmetadata.LicenseShortName` |
-| Résumé + image principale d'un article | `https://fi.wikipedia.org/api/rest_v1/page/summary/Suomen_sisällissota` |
-| Vues par jour (depuis 07/2015) | `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/fi.wikipedia/all-access/user/<Titre_avec_underscores>/daily/<AAAAMMJJ>/<AAAAMMJJ>` |
-| Nouvelles versions d'un article (veille) — **à vérifier au premier appel** | `https://fi.wikipedia.org/w/api.php?action=query&format=json&prop=revisions&pageids=<id>&rvdir=newer&rvstart=<ISO date>&rvlimit=50&rvprop=ids\|timestamp\|user\|comment\|sha1\|size\|flags\|content&rvslots=main` (un article par requête) |
-| Liste des robots officiels — **à vérifier au premier appel** | `https://fi.wikipedia.org/w/api.php?action=query&format=json&list=allusers&augroup=bot&aulimit=500` |
-| Liens pour le site | version : `https://fi.wikipedia.org/?oldid=<rev_id>` · différence avec la précédente : `https://fi.wikipedia.org/w/index.php?diff=prev&oldid=<rev_id>` |
+| Thumbnail + author + license of a picture (≤ 50 titles per request) | `https://fi.wikipedia.org/w/api.php?action=query&format=json&prop=imageinfo&iiprop=url\|extmetadata&iiurlwidth=800&titles=Tiedosto:A.jpg\|Tiedosto:B.jpg` → `thumburl`, `extmetadata.Artist`, `extmetadata.LicenseShortName` |
+| Summary + main picture of an article | `https://fi.wikipedia.org/api/rest_v1/page/summary/Suomen_sisällissota` |
+| Views per day (since 07/2015) | `https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/fi.wikipedia/all-access/user/<Title_with_underscores>/daily/<YYYYMMDD>/<YYYYMMDD>` |
+| New versions of an article (live watch) — **to check on the first call** | `https://fi.wikipedia.org/w/api.php?action=query&format=json&prop=revisions&pageids=<id>&rvdir=newer&rvstart=<ISO date>&rvlimit=50&rvprop=ids\|timestamp\|user\|comment\|sha1\|size\|flags\|content&rvslots=main` (one article per request) |
+| List of official bots — **to check on the first call** | `https://fi.wikipedia.org/w/api.php?action=query&format=json&list=allusers&augroup=bot&aulimit=500` |
+| Links for the site | version: `https://fi.wikipedia.org/?oldid=<rev_id>` · difference with the previous one: `https://fi.wikipedia.org/w/index.php?diff=prev&oldid=<rev_id>` |
 
-Vérifié vendredi : l'API de vues répond pour *Suomen_sisällissota* (136 mois, 1 874 510 vues de juillet 2015 à octobre 2026).
+Checked on Friday: the page views API answers for *Suomen_sisällissota* (136 months, 1,874,510 views from July 2015 to October 2026).
 
-## 10. Profil des comptes, exposition, fiabilité (Nathanaël)
+## 10. Account patterns, exposure, reliability (Nathanaël)
 
-**Source des données : les fichiers parquet, pas la base.** Le chargement complet dans MariaDB prendra des heures : le profil des comptes et l'exposition se calculent directement depuis `data/versions-XX.parquet` (même lecture que section 3).
+**Data source: the parquet files, not the database.** The full load into MariaDB takes hours: account patterns and exposure are computed directly from `data/versions-XX.parquet` (same reading as section 3).
 
-**Profil des comptes** (`accounts.jsonl`, sans IA, sur les parquet) :
+**Account patterns** (`accounts.jsonl`, no model, on the parquet files):
 
-| `kind` | Règle de départ (à ajuster en regardant les données) |
+| `kind` | Starting rule (to tune by looking at the data) |
 |---|---|
-| `declared_bot` | nom dans la liste des robots officiels (section 9) ou finissant par « bot » → **bénin, exclu de tout** |
-| `bot_like` | ≥ 20 modifications en 1 h, ou intervalles très réguliers (écart-type des intervalles < 10 % de leur moyenne) |
-| `throwaway` | actif ≤ 7 jours en tout, ≥ 3 articles sensibles touchés |
-| `single_purpose` | ≥ 10 modifications, toutes sur ≤ 2 articles du même thème |
-| `normal` | le reste |
+| `declared_bot` | name in the list of official bots (section 9) or ending in "bot" → **benign, excluded from everything** |
+| `bot_like` | ≥ 20 edits in 1 h, or very regular intervals (standard deviation of the intervals < 10% of their mean) |
+| `throwaway` | active ≤ 7 days in total, ≥ 3 sensitive articles touched |
+| `single_purpose` | ≥ 10 edits, all on ≤ 2 articles of the same theme |
+| `normal` | the rest |
 
-Ajouter le **taux d'annulation** (part de ses modifications annulées par un autre compte) dans `reasons`. Chaque compte non normal doit avoir des `reasons` **lisibles par un humain**.
+Add the **revert rate** (share of its edits reverted by another account) to `reasons`. Every account that is not normal must have `reasons` **a human can read**.
 
-**Exposition** d'un cas :
-- **durée en ligne** : de la date de la version suspecte jusqu'à la date de la **première version suivante** où le contenu suspect a disparu (pour une image : la légende ou le fichier change ; pour un texte : les mots ajoutés ne sont plus présents). Si le contenu est toujours là : `still_online: true`, durée jusqu'à aujourd'hui ;
-- **lecteurs estimés** : somme des vues par jour sur la période (section 9), avec le **titre de l'époque**. `null` si la période est avant juillet 2015, et c'est un **plafond** (vues de tout l'article) : on l'écrit toujours « ≈ ».
+**Exposure** of a case:
+- **time online**: from the date of the suspicious version to the date of the **first later version** where the suspicious content is gone (for a picture: the caption or the file changes; for text: the added words are no longer there). If the content is still there: `still_online: true`, duration up to today;
+- **estimated readers**: sum of the views per day over the period (section 9), with the **title of the time**. `null` if the period is before July 2015, and it is an **upper bound** (views of the whole article): we always write it with "≈".
 
-**Fiabilité** → `data/exchange/quality.json` :
+**Reliability** → `data/exchange/quality.json`:
 ```json
 {"synthetic_campaign": {"planted": 13, "caught": 11},
  "manual_review": {"reviewed": 20, "correct": 17},
@@ -378,22 +378,22 @@ Ajouter le **taux d'annulation** (part de ses modifications annulées par un aut
  "suspicious_accounts": 27,
  "notes": {"synthetic_campaign": "13 fake edits planted in a test copy, never shown publicly"}}
 ```
-La fausse campagne est générée par `decision/quality.py` sous forme de lignes `candidates.jsonl` avec `"synthetic": true`. Elle passe dans la même chaîne, et **elle est filtrée de toute réponse publique**.
+The test campaign is generated by `decision/quality.py` as `candidates.jsonl` lines with `"synthetic": true`. It goes through the same chain, and **it is filtered out of every public response**.
 
-## 11. L'API du site : formats de réponse (Léopold → Eléa)
+## 11. The site's API: response formats (Léopold → Eléa)
 
-Eléa crée des fichiers `web/mock/*.json` **exactement** à ces formats. **Aucune réponse publique ne contient `user`.**
+Eléa creates `web/mock/*.json` files in **exactly** these formats. **No public response contains `user`.**
 
 ```jsonc
 // GET /api/stats
 {"articles": 19742, "versions": 862076, "candidates": 0, "analysed": 0, "published": 0, "readers_exposed_est": 0}
 
-// GET /api/cases            (publiés, triés par readers_est puis confidence)   ?since=7d pour la veille
+// GET /api/cases            (published, sorted by readers_est then confidence)   ?since=7d for the live watch
 [{"rev_id": 23498098, "page_id": 1150, "title": "Suomen sisällissota", "date": "2019-03-02",
   "signal_type": "image", "headline_en": "…", "summary_en": "…", "confidence": 0.8,
   "days_live": 412, "readers_est": 38000, "still_online": false, "image_thumb": "https://upload.wikimedia.org/…"}]
 
-// GET /api/cases/{rev_id}   (fiche de preuves)
+// GET /api/cases/{rev_id}   (evidence page)
 {"rev_id": 23498098, "page_id": 1150, "title": "…", "date": "2019-03-02", "signal_type": "image",
  "headline_en": "…", "summary_en": "…", "confidence": 0.8,
  "added": "…", "removed": "…",
@@ -406,58 +406,58 @@ Eléa crée des fichiers `web/mock/*.json` **exactement** à ces formats. **Aucu
  "links": {"version": "https://fi.wikipedia.org/?oldid=23498098",
            "diff": "https://fi.wikipedia.org/w/index.php?diff=prev&oldid=23498098"}}
 
-// GET /api/quality          = le contenu de data/exchange/quality.json
+// GET /api/quality          = the content of data/exchange/quality.json
 
 // GET /api/articles
 [{"page_id": 1150, "title": "Suomen sisällissota", "versions": 3357, "first_edit": "2003-08-26", "last_edit": "2026-09-12"}]
 
-// GET /api/articles/{page_id}?as_of=2015-06-01      (texte nettoyé, sans nom de compte)
+// GET /api/articles/{page_id}?as_of=2015-06-01      (cleaned text, no account name)
 {"page_id": 1150, "title": "…", "rev_id": 14664523, "as_of": "2015-06-01", "saved_at": "2015-02-09T18:57:03Z", "text": "…"}
 
 // GET /api/articles/{page_id}/timeline
 [{"month": "2008-03", "edits": 12, "reverts": 2}]
 ```
 
-`/api/articles` ne doit pas recalculer un `GROUP BY` sur 862 000 lignes à chaque appel : le précalculer une fois à la fin du chargement, dans une petite table ou un fichier.
+`/api/articles` must not recompute a `GROUP BY` over 862,000 rows on every call: precompute it once at the end of the load, in a small table or a file.
 
-## 12. La Lens (Eléa)
+## 12. The Lens (Eléa)
 
-**Avant de construire (2 minutes)** : vérifier qu'un favori peut agir sur Wikipédia. Créez un favori dont l'adresse est :
+**Before building (2 minutes)**: check that a bookmark can act on Wikipedia. Create a bookmark whose address is:
 ```
 javascript:(()=>{document.querySelectorAll('#mw-content-text img').forEach(i=>i.style.outline='4px solid red')})()
 ```
-Ouvrez `https://fi.wikipedia.org/wiki/Suomen_sisällissota` et cliquez sur le favori. Si les images ont un contour rouge, la méthode marche. Sinon (sécurité de la page), prévenez l'équipe tout de suite : le plan B est une extension de navigateur minimale chargée à la main en mode développeur.
+Open `https://fi.wikipedia.org/wiki/Suomen_sisällissota` and click the bookmark. If the pictures get a red outline, the method works. If not (page security), tell the team at once: plan B is a minimal browser extension loaded by hand in developer mode.
 
-**Décision technique : la Lens n'appelle PAS notre serveur.** Wikipédia est en **HTTPS**, notre VPS en **HTTP** : le navigateur **bloque** un appel d'une page HTTPS vers une adresse HTTP (« contenu mixte »).
+**Technical decision: the Lens does NOT call our server.** Wikipedia is on **HTTPS**, our VPS on **HTTP**: the browser **blocks** a call from an HTTPS page to an HTTP address ("mixed content").
 
-**Donc** :
-- `lens/build_bookmarklet.py` lit `analysis.jsonl` + `decisions.jsonl` (cas publiés des **2-3 articles de démo** seulement) et produit un petit JSON d'annotations ;
-- il l'**intègre directement** dans `lens/lens.js`, puis génère `lens/bookmarklet.txt` (`javascript:(()=>{…})()`) à copier dans un favori ;
-- sur la page Wikipédia, le script repère :
-  - **les images**, par leur nom de fichier dans l'attribut `src` des `<img>` ;
-  - **les passages**, en cherchant le texte ajouté dans les paragraphes (`document.querySelectorAll("#mw-content-text p")`) ;
-- il les entoure (contour coloré) et affiche une infobulle au survol : *« Caption changed 3 times since 2009 · online 412 days · ≈ 38,000 readers »*, avec un lien vers la fiche de cas sur notre site (un simple lien, autorisé) ;
-- gardez le JSON intégré petit (quelques dizaines d'annotations) : un favori trop long peut être tronqué par le navigateur.
+**So**:
+- `lens/build_bookmarklet.py` reads `analysis.jsonl` + `decisions.jsonl` (published cases of the **2-3 demo articles** only) and produces a small JSON of annotations;
+- it **embeds it directly** in `lens/lens.js`, then generates `lens/bookmarklet.txt` (`javascript:(()=>{…})()`) to copy into a bookmark;
+- on the Wikipedia page, the script finds:
+  - **the pictures**, by their file name in the `src` attribute of the `<img>` elements;
+  - **the passages**, by searching for the added text in the paragraphs (`document.querySelectorAll("#mw-content-text p")`);
+- it outlines them (coloured outline) and shows a tooltip on hover: *"Caption changed 3 times since 2009 · online 412 days · ≈ 38,000 readers"*, with a link to the case page on our site (a plain link, allowed);
+- keep the embedded JSON small (a few dozen annotations): a bookmark that is too long can be cut by the browser.
 
-## 13. Déploiement : VPS + CRACI (Léopold, Eléa)
+## 13. Deployment: VPS + CRACI (Léopold, Eléa)
 
-**VPS (une fois, Léopold)**, en root :
+**VPS (once, Léopold)**, as root:
 ```bash
-curl -fsSL https://get.docker.com | sh            # script officiel d'installation de Docker
+curl -fsSL https://get.docker.com | sh            # official Docker install script
 adduser --disabled-password deploy && usermod -aG docker deploy
-ufw allow 22 && ufw allow 80 && ufw --force enable  # SSH + web seulement, jamais 3306
-# coller la clé publique de déploiement dans /home/deploy/.ssh/authorized_keys
+ufw allow 22 && ufw allow 80 && ufw --force enable  # SSH + web only, never 3306
+# paste the public deploy key into /home/deploy/.ssh/authorized_keys
 ```
-Puis, en tant que `deploy` : créer `~/timeproof/` avec `.env` (vraies valeurs, `APP_PORT=80`, `USE_MOCK=false`) et `data/`, télécharger les 16 fichiers parquet directement sur le VPS, puis lancer le chargement (section 5).
+Then, as `deploy`: create `~/timeproof/` with `.env` (real values, `APP_PORT=80`, `USE_MOCK=false`) and `data/`, download the 16 parquet files straight onto the VPS, then start the load (section 5).
 
-**`docker-compose.yml`** :
-- service `db` : `mariadb:lts`, variables `MARIADB_DATABASE` / `MARIADB_USER` / `MARIADB_PASSWORD` / `MARIADB_ROOT_PASSWORD` prises dans `.env`, `command: --max-allowed-packet=256M`, volume persistant pour `/var/lib/mysql`, volume `./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro`, healthcheck `healthcheck.sh --connect --innodb_initialized`, **pas de `ports:`** ;
-- service `server` : construit depuis `server/` (`python:3.12-slim`, `WORKDIR /app`, `COPY . .`, `pip install fastapi uvicorn PyMySQL pyarrow httpx`), `env_file: .env`, `depends_on: db (service_healthy)`, `ports: "${APP_PORT}:8000"`, volumes `./web:/app/web:ro` et `./data:/data`, commande `uvicorn main:app --host 0.0.0.0 --port 8000`.
+**`docker-compose.yml`**:
+- `db` service: `mariadb:lts`, variables `MARIADB_DATABASE` / `MARIADB_USER` / `MARIADB_PASSWORD` / `MARIADB_ROOT_PASSWORD` taken from `.env`, `command: --max-allowed-packet=256M`, persistent volume for `/var/lib/mysql`, volume `./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro`, healthcheck `healthcheck.sh --connect --innodb_initialized`, **no `ports:`**;
+- `server` service: built from `server/` (`python:3.12-slim`, `WORKDIR /app`, `COPY . .`, `pip install fastapi uvicorn PyMySQL pyarrow httpx`), `env_file: .env`, `depends_on: db (service_healthy)`, `ports: "${APP_PORT}:8000"`, volumes `./web:/app/web:ro` and `./data:/data`, command `uvicorn main:app --host 0.0.0.0 --port 8000`.
 
-**CRACI (Eléa, avec Léopold)** :
-1. platform.craci.com → créer l'organisation avec le code d'invitation → Settings → Builds → installer l'application GitHub sur le dépôt.
-2. Dans le dépôt GitHub → Settings → Secrets → Actions : `VPS_HOST`, `VPS_USER` (`deploy`), `VPS_SSH_KEY` (clé privée).
-3. `.github/workflows/deploy.yml` :
+**CRACI (Eléa, with Léopold)**:
+1. platform.craci.com → create the organisation with the invitation code → Settings → Builds → install the GitHub app on the repository.
+2. In the GitHub repository → Settings → Secrets → Actions: `VPS_HOST`, `VPS_USER` (`deploy`), `VPS_SSH_KEY` (private key).
+3. `.github/workflows/deploy.yml`:
 ```yaml
 name: deploy
 on:
@@ -481,64 +481,64 @@ jobs:
           tar czf - --exclude=.git --exclude=data --exclude=.env . | ssh -i ~/.ssh/k "$VPS_USER@$VPS_HOST" "mkdir -p ~/timeproof && tar xzf - -C ~/timeproof"
           ssh -i ~/.ssh/k "$VPS_USER@$VPS_HOST" "cd ~/timeproof && docker compose up -d --build"
 ```
-Le déploiement tourne sur la branche `Deploy` (pas sur `main`) : voir `.github/workflows/deploy.yml`. La veille peut être lancée par un second workflow avec `on: schedule: - cron: "0 * * * *"`, qui exécute `server/watch.py` sur le VPS par `ssh`.
+The deployment runs on the `Deploy` branch (not on `main`): see `.github/workflows/deploy.yml`. The live watch can be started by a second workflow with `on: schedule: - cron: "0 * * * *"`, which runs `server/watch.py` on the VPS through `ssh`.
 
-## 14. Pièges déjà rencontrés
+## 14. Pitfalls already met
 
-| Piège | Solution |
+| Pitfall | Solution |
 |---|---|
-| Git Bash réécrit `/data/…` en chemin Windows | Préfixer `MSYS_NO_PATHCONV=1` |
-| L'horloge de certains PC avance d'une heure | Se fier à l'heure d'Helsinki des téléphones |
-| `TIMESTAMP ?` refuse une date seule | Écrire `'2015-06-01 00:00:00'` |
-| Toutes les versions datées du jour du chargement | `system_versioning_insert_history = 1` + `row_start`/`row_end` (section 5) |
-| Erreur 429 de Wikimedia | User-Agent descriptif (section 2) |
-| Erreur 401 « Invalid JWT » avec la clé Verda | Elle ne marche qu'à l'adresse Verda, pas chez NVIDIA |
-| Une faute corrigée compte comme un paragraphe entier | Comparer mot à mot dans les seuls paragraphes changés |
-| Les images et références disparaissent à l'analyse | Les extraire **avant** de nettoyer le wikitexte |
-| La réponse de l'IA contient du texte autour du JSON | Garder seulement du premier `{` au dernier `}` |
-| Le titre d'un article change avec le temps | Pour les vues, utiliser le `title` de la version concernée |
-| Lens bloquée sur Wikipédia | Données intégrées au favori, aucun appel réseau (section 12) |
+| Git Bash rewrites `/data/…` into a Windows path | Prefix with `MSYS_NO_PATHCONV=1` |
+| The clock of some PCs is one hour ahead | Trust the Helsinki time of the phones |
+| `TIMESTAMP ?` refuses a date alone | Write `'2015-06-01 00:00:00'` |
+| Every version dated on the day of the load | `system_versioning_insert_history = 1` + `row_start`/`row_end` (section 5) |
+| Error 429 from Wikimedia | Descriptive User-Agent (section 2) |
+| Error 401 "Invalid JWT" with the Verda key | It only works at the Verda address, not at NVIDIA |
+| A fixed typo counts as a whole paragraph | Compare word by word, in the changed paragraphs only |
+| Pictures and references vanish during the analysis | Extract them **before** cleaning the wikitext |
+| The model's answer has text around the JSON | Keep only from the first `{` to the last `}` |
+| The title of an article changes over time | For the views, use the `title` of the version concerned |
+| Lens blocked on Wikipedia | Data embedded in the bookmark, no network call (section 12) |
 
-## 15. Formats d'échange (JSONL)
+## 15. Exchange formats (JSONL)
 
-Les modules s'échangent des **fichiers JSONL** (un objet JSON par ligne), rangés dans `data/exchange/`. Les READMEs de
-`analysis/` et `decision/` listent les champs ajoutés depuis.
+The modules exchange **JSONL files** (one JSON object per line), kept in `data/exchange/`. The READMEs of
+`analysis/` and `decision/` list the fields added since.
 
-### 15.1 `candidates.jsonl` (écrit par `analysis/find_candidates.py`)
-Une modification qui mérite d'être examinée :
+### 15.1 `candidates.jsonl` (written by `analysis/find_candidates.py`)
+An edit worth investigating:
 ```json
 {"rev_id": 23498098, "page_id": 1150, "title": "Suomen sisällissota", "timestamp": "2025-08-17T10:28:50Z",
  "kind": "image", "account_hash": "a3f9c2…", "user_is_new": true, "synthetic": false, "comment": "…",
- "added": "mots ajoutés", "removed": "mots retirés",
+ "added": "added words", "removed": "removed words",
  "image": {"change": "recaptioned", "file": "Jaakarit_vaasan_torilla.jpg",
            "caption_old": "…", "caption_new": "…", "thumb_url": "https://…"},
  "refs_removed": 0}
 ```
-`kind` vaut l'une de ces valeurs : `"framing"`, `"image"`, `"sources"`, `"coordination"`. `image` vaut `null` si aucune image n'est concernée.
+`kind` is one of: `"framing"`, `"image"`, `"sources"`, `"coordination"`. `image` is `null` when no picture is involved.
 
-### 15.2 `analysis.jsonl` (écrit par `analysis/run_nemotron.py`)
-La même ligne, plus le rapport de Nemotron :
+### 15.2 `analysis.jsonl` (written by `analysis/run_nemotron.py`)
+The same line, plus Nemotron's report:
 ```json
 {"rev_id": 23498098, "...": "...", "nemotron": {"suspicious": true, "signals": ["caption changed meaning"],
- "report": "3-6 phrases vérifiables", "image_findings": {"what_it_shows": "…", "caption_matches": false}}}
+ "report": "3-6 sentences a human can check", "image_findings": {"what_it_shows": "…", "caption_matches": false}}}
 ```
 
-### 15.3 `decisions.jsonl` (écrit par `decision/decide.py` et `decision/exposure.py`)
+### 15.3 `decisions.jsonl` (written by `decision/decide.py` and `decision/exposure.py`)
 ```json
 {"rev_id": 23498098, "decision": "flag", "confidence": 0.8, "publish": true,
- "headline_en": "A 1918 photo caption changed meaning", "summary_en": "2-4 phrases claires",
+ "headline_en": "A 1918 photo caption changed meaning", "summary_en": "2-4 clear sentences",
  "exposure": {"live_from": "2019-03-02", "live_until": null, "days_live": 2450, "readers_est": 38000}}
 ```
-- `decision` : `flag`, `dismiss` ou `human_review`.
-- **Règle** : `flag` seulement si Nemotron (`suspicious`) **et** Gemini sont d'accord, sinon `human_review`.
-- `readers_est` vaut `null` avant juillet 2015.
+- `decision`: `flag`, `dismiss` or `human_review`.
+- **Rule**: `flag` only if Nemotron (`suspicious`) **and** Gemini agree, otherwise `human_review`.
+- `readers_est` is `null` before July 2015.
 
-### 15.4 `accounts.jsonl` (écrit par `decision/accounts.py`)
-Un compte par ligne, calculé **sans IA** à partir des fichiers de données (auteur, date, anonyme, annulations) :
+### 15.4 `accounts.jsonl` (written by `decision/accounts.py`)
+One account per line, computed **without a model** from the data files (author, date, anonymous, reverts):
 ```json
 {"account_hash": "a3f9…", "kind": "bot_like", "declared_bot": false, "score": 0.82,
  "reasons": ["38 edits in 2 h at regular intervals", "edits 6 sensitive articles only", "71% of edits reverted"],
  "edits": 54, "articles": 6, "first_seen": "2024-03-02", "last_seen": "2024-03-09"}
 ```
-- `kind` : `"declared_bot"` (robot officiel de Wikipédia, **bénin**), `"bot_like"`, `"throwaway"` (compte jetable), `"single_purpose"` (un seul thème), `"normal"`.
-- **Aucun nom de compte** dans ce fichier : on garde une empreinte (`account_hash`).
+- `kind`: `"declared_bot"` (official Wikipedia bot, **benign**), `"bot_like"`, `"throwaway"`, `"single_purpose"` (one theme only), `"normal"`.
+- **No account name** in this file: we keep a fingerprint (`account_hash`).

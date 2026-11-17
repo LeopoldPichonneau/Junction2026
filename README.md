@@ -134,7 +134,7 @@ The figures in the pictures are the ones the site showed on 16 November 2026. Th
 - **The site.** One FastAPI server exposes the API and serves `web/` as static files. There is no build step.
 - **The live watch.** Hermes Agent calls an internal route of the server on a schedule. The server reads Wikipedia's recent changes, stores the new versions and runs the same pipeline on them.
 
-The technical reference is in [`docs/TECH.md`](docs/TECH.md) (in French).
+The technical reference is in [`docs/TECH.md`](docs/TECH.md).
 
 ## Getting started
 
@@ -222,7 +222,7 @@ With `USE_MOCK=true` each script can be tried on its own without a key: it write
 | [`web/`](web/) | The site: plain HTML, CSS and JavaScript, no build step |
 | [`lens/`](lens/) | The TimeProof Lens bookmark and its builder |
 | [`hermes/`](hermes/) | Hermes Agent jobs: live watch, review desk, hourly brief |
-| [`docs/`](docs/) | Technical reference (in French) and the images of this README |
+| [`docs/`](docs/) | Technical reference and the images of this README |
 | [`.github/workflows/`](.github/workflows/) | Deployment to the server on CRACI runners |
 
 ## Ground rules
