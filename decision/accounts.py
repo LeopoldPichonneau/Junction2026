@@ -1,7 +1,7 @@
 """Account profiles, without AI: our answer to the "bots and bad actors" part of Hostinger.
 
 Reads  data/versions-XX.parquet (no text column, so it is fast)
-Writes data/exchange/accounts.jsonl          (format 4.3 bis, one account per line, no names)
+Writes data/exchange/accounts.jsonl          (docs/TECH.md section 15.4, one account per line, no names)
        data/exchange/accounts_summary.json   (counts used by quality.py)
 
     python decision/accounts.py

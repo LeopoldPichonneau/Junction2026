@@ -2,7 +2,7 @@
 
 Reads the revision parquet files in batches, compares each version of an article
 with the previous one, and writes one line per suspicious edit to
-data/exchange/candidates.jsonl (format: docs/TIMEPROOF-PLAN-SAMEDI.md, section 4.1).
+data/exchange/candidates.jsonl (format: docs/TECH.md, section 15.1).
 
 Usage (from the repository root):
     python analysis/find_candidates.py --page-id 1150

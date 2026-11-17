@@ -1,7 +1,7 @@
 """Gemini makes the final call on each case examined by Nemotron.
 
-Reads  data/exchange/analysis.jsonl   (format 4.2, written by analysis/)
-Writes data/exchange/decisions.jsonl  (format 4.3; exposure is added later by exposure.py)
+Reads  data/exchange/analysis.jsonl   (docs/TECH.md section 15.2, written by analysis/)
+Writes data/exchange/decisions.jsonl  (section 15.3; exposure is added later by exposure.py)
 
     python decision/decide.py                                   # real run
     python decision/decide.py --input decision/sample/analysis.sample.jsonl   # try it -> decisions.test.jsonl
@@ -17,7 +17,7 @@ import time
 import config
 from dataio import append_jsonl, done_rev_ids, read_jsonl
 
-PROMPT_VERSION = "v2"  # bump when DECIDER_PROMPT changes, and log the change in PROMPT-LOG.md
+PROMPT_VERSION = "v2"  # bump when DECIDER_PROMPT changes
 
 # v2: v1 summaries accused editors ("falsely", "fabricates", "a common tactic"), which our public
 # site must never do. v2 keeps the same decision rules but forces factual, attributed wording.

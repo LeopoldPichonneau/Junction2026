@@ -43,7 +43,7 @@ docker exec -u hermes $H hermes cron resume 44a77c7d4841    # start it again
 docker exec -u hermes $H hermes cron runs                    # what the scheduler ran
 
 tail -f ~/timeproof/data/logs/watch.log                      # the watcher's log
-curl -s https://timeproof.srv2158940.hstgr.cloud/api/live    # last check and counters
+curl -s https://$PUBLIC_HOST/api/live                        # last check and counters
 
 cd ~/timeproof
 docker compose exec -T server python watch.py                # one run by hand

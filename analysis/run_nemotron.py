@@ -1,7 +1,7 @@
 """Ask Nemotron to investigate each candidate edit (step 3).
 
 Reads data/exchange/candidates.jsonl and appends to data/exchange/analysis.jsonl the same
-line plus a "nemotron" report (format: docs/TIMEPROOF-PLAN-SAMEDI.md, section 4.2).
+line plus a "nemotron" report (format: docs/TECH.md, section 15.2).
 Each answer is written as soon as it arrives; rev_ids already in analysis.jsonl are
 skipped, so the script can be stopped and restarted at any time.
 
@@ -35,7 +35,7 @@ FOCUS_PAGE = 1150               # Suomen sisällissota: the core of the demo
 MAX_WORKERS = 4                 # shared server: never more than 4 calls at once
 STOP_AFTER_FAILURES = 10        # with 4 parallel calls, a short burst of 500s already gives 3-4 failures
 
-PROMPT_VERSION = "v4"           # history and measured reasons: analysis/PROMPT-LOG.md
+PROMPT_VERSION = "v4"           # bump when INVESTIGATOR_PROMPT changes
 INVESTIGATOR_PROMPT = """You investigate one edit to a Finnish Wikipedia article about the history of Finland.
 Texts are in Finnish; reason over them and answer in English.
 Decide whether this edit looks like an attempt to push a narrative (one-sided reframing,

@@ -1,6 +1,6 @@
 # TimeProof — référence technique
 
-> Tout ce qu'il faut pour coder sa partie sans redemander. Complète `TIMEPROOF-PLAN-SAMEDI.md` (qui fait quoi, quand, formats JSONL).
+> Tout ce qu'il faut pour coder sa partie sans redemander. Les formats JSONL échangés entre modules sont en [section 15](#15-formats-déchange-jsonl).
 > **Testé** = vérifié par l'équipe vendredi soir. Le reste est une décision d'équipe à appliquer telle quelle.
 
 ## Sommaire
@@ -18,6 +18,7 @@
 12. [La Lens (Eléa)](#12-la-lens-eléa)
 13. [Déploiement : VPS + CRACI (Léopold, Eléa)](#13-déploiement--vps--craci-léopold-eléa)
 14. [Pièges déjà rencontrés](#14-pièges-déjà-rencontrés)
+15. [Formats d'échange (JSONL)](#15-formats-déchange-jsonl)
 
 ---
 
@@ -34,7 +35,7 @@
 | CI/CD | **CRACI** (`runs-on: craci`) : vérifie et déploie à chaque push sur `main` | Tech challenge CRACI |
 
 ```
-Junction2026/
+TimeProof/
 ├── docs/                     ces documents
 ├── docker-compose.yml        Léopold : services db + server
 ├── .env.example              Léopold : liste des variables, sans valeurs
@@ -307,19 +308,7 @@ def ask_nemotron(prompt: str, image_url: str | None = None) -> dict:
     return json.loads(text[text.find("{"): text.rfind("}") + 1])    # ne garder que le JSON
 ```
 
-**Consigne de l'enquêteur** (point de départ) :
-```
-You investigate one edit to a Finnish Wikipedia article about the history of Finland.
-Texts are in Finnish; reason over them and answer in English.
-Decide whether this edit looks like an attempt to push a narrative (one-sided reframing,
-misleading image or caption, removal of sources, coordinated editing) rather than ordinary
-editing (new facts, style, sourcing, vandalism cleanup). Be conservative: most edits are ordinary.
-If an image is attached, describe what it actually shows and say whether the caption matches it.
-Answer with JSON only:
-{"suspicious": true|false, "signals": ["…"], "report": "3-6 sentences a human can check",
- "image_findings": {"what_it_shows": "…", "caption_matches": true|false|null} | null}
-```
-Le message utilisateur contient la ligne de `candidates.jsonl` (texte ajouté/retiré, légendes, compte en version anonymisée).
+La consigne de l'enquêteur est dans `analysis/run_nemotron.py` (`INVESTIGATOR_PROMPT`). Le message utilisateur contient la ligne de `candidates.jsonl` (texte ajouté/retiré, légendes, compte en version anonymisée).
 
 **Limites** : serveur **partagé** entre équipes (limite d'appels inconnue → demander à Verda sur Discord), donc pas plus de 2 à 4 appels en parallèle sans leur accord. Écrire chaque résultat dès qu'il arrive dans `analysis.jsonl`, et sauter les `rev_id` déjà traités au redémarrage.
 
@@ -335,17 +324,7 @@ r = httpx.post(os.environ["GEMINI_BASE_URL"] + "chat/completions",       # l'adr
                timeout=120)
 ```
 
-**Consigne du décideur** (point de départ) :
-```
-You make the final call on a Wikipedia edit, given the evidence and an investigator's report
-(the investigator can be wrong). Texts are Finnish; write in English for a general reader.
-"flag" = likely narrative manipulation, "dismiss" = ordinary editing, "human_review" = unclear.
-False positives are costly: when in doubt, choose human_review. Never name any account.
-Answer with JSON only:
-{"decision": "flag"|"dismiss"|"human_review", "confidence": 0.0-1.0, "publish": true|false,
- "signal_type": "framing"|"image"|"sources"|"coordination",
- "headline_en": "max 90 characters", "summary_en": "2-4 sentences", "explanation": "why"}
-```
+La consigne du décideur est dans `decision/decide.py` (`DECIDER_PROMPT`).
 
 **Règle des deux avis, appliquée dans le code et pas laissée au modèle** :
 - `flag` si Gemini dit `flag` **et** Nemotron dit `suspicious: true` ;
@@ -519,3 +498,47 @@ Le déploiement tourne sur la branche `Deploy` (pas sur `main`) : voir `.github/
 | La réponse de l'IA contient du texte autour du JSON | Garder seulement du premier `{` au dernier `}` |
 | Le titre d'un article change avec le temps | Pour les vues, utiliser le `title` de la version concernée |
 | Lens bloquée sur Wikipédia | Données intégrées au favori, aucun appel réseau (section 12) |
+
+## 15. Formats d'échange (JSONL)
+
+Les modules s'échangent des **fichiers JSONL** (un objet JSON par ligne), rangés dans `data/exchange/`. Les READMEs de
+`analysis/` et `decision/` listent les champs ajoutés depuis.
+
+### 15.1 `candidates.jsonl` (écrit par `analysis/find_candidates.py`)
+Une modification qui mérite d'être examinée :
+```json
+{"rev_id": 23498098, "page_id": 1150, "title": "Suomen sisällissota", "timestamp": "2025-08-17T10:28:50Z",
+ "kind": "image", "account_hash": "a3f9c2…", "user_is_new": true, "synthetic": false, "comment": "…",
+ "added": "mots ajoutés", "removed": "mots retirés",
+ "image": {"change": "recaptioned", "file": "Jaakarit_vaasan_torilla.jpg",
+           "caption_old": "…", "caption_new": "…", "thumb_url": "https://…"},
+ "refs_removed": 0}
+```
+`kind` vaut l'une de ces valeurs : `"framing"`, `"image"`, `"sources"`, `"coordination"`. `image` vaut `null` si aucune image n'est concernée.
+
+### 15.2 `analysis.jsonl` (écrit par `analysis/run_nemotron.py`)
+La même ligne, plus le rapport de Nemotron :
+```json
+{"rev_id": 23498098, "...": "...", "nemotron": {"suspicious": true, "signals": ["caption changed meaning"],
+ "report": "3-6 phrases vérifiables", "image_findings": {"what_it_shows": "…", "caption_matches": false}}}
+```
+
+### 15.3 `decisions.jsonl` (écrit par `decision/decide.py` et `decision/exposure.py`)
+```json
+{"rev_id": 23498098, "decision": "flag", "confidence": 0.8, "publish": true,
+ "headline_en": "A 1918 photo caption changed meaning", "summary_en": "2-4 phrases claires",
+ "exposure": {"live_from": "2019-03-02", "live_until": null, "days_live": 2450, "readers_est": 38000}}
+```
+- `decision` : `flag`, `dismiss` ou `human_review`.
+- **Règle** : `flag` seulement si Nemotron (`suspicious`) **et** Gemini sont d'accord, sinon `human_review`.
+- `readers_est` vaut `null` avant juillet 2015.
+
+### 15.4 `accounts.jsonl` (écrit par `decision/accounts.py`)
+Un compte par ligne, calculé **sans IA** à partir des fichiers de données (auteur, date, anonyme, annulations) :
+```json
+{"account_hash": "a3f9…", "kind": "bot_like", "declared_bot": false, "score": 0.82,
+ "reasons": ["38 edits in 2 h at regular intervals", "edits 6 sensitive articles only", "71% of edits reverted"],
+ "edits": 54, "articles": 6, "first_seen": "2024-03-02", "last_seen": "2024-03-09"}
+```
+- `kind` : `"declared_bot"` (robot officiel de Wikipédia, **bénin**), `"bot_like"`, `"throwaway"` (compte jetable), `"single_purpose"` (un seul thème), `"normal"`.
+- **Aucun nom de compte** dans ce fichier : on garde une empreinte (`account_hash`).

@@ -8,8 +8,8 @@ et les 16 fichiers `data/versions-XX.parquet` (avec un seul, on ne couvre que 28
 
 | Ordre | Commande | Lit | Écrit (dans `data/exchange/`) |
 |---|---|---|---|
-| 1 | `python decision/accounts.py` | `data/versions-*.parquet` | `accounts.jsonl` (format 4.3 bis) + `accounts_summary.json` → **à donner à Maël** |
-| 2 | `python decision/decide.py` | `analysis.jsonl` (Maël) | `decisions.jsonl` (format 4.3) |
+| 1 | `python decision/accounts.py` | `data/versions-*.parquet` | `accounts.jsonl` (format : `docs/TECH.md`, section 15.4) + `accounts_summary.json` → **à donner à Maël** |
+| 2 | `python decision/decide.py` | `analysis.jsonl` (Maël) | `decisions.jsonl` (format : section 15.3) |
 | 3 | `python decision/exposure.py` (peut tourner **avant** Nemotron : il prend `candidates.jsonl` si `analysis.jsonl` n'existe pas encore) | les cas, parquet, API d'audience | `exposure.jsonl` (gardé d'une fois sur l'autre : seuls les nouveaux cas sont calculés) ; après `decide.py` : `python decision/exposure.py --merge-only` ajoute `exposure` dans `decisions.jsonl` |
 | 4 | `python decision/quality.py campaign` | `candidates.jsonl` (vraies photos d'articles différents) | `synthetic_candidates.jsonl` (10 textes + 3 légendes trompeuses) → **à donner à Maël** |
 | 5 | `python decision/quality.py review-sheet` | `decisions.jsonl` | `data/manual_review.csv` (20 cas à relire à la main) |
@@ -25,7 +25,7 @@ Essai sans attendre Maël : `python decision/decide.py --input decision/sample/a
 Les cas non suspects reçoivent `dismiss` par règle (`decided_by: "rule"`), sauf un échantillon (5 %) envoyé à Gemini
 pour mesurer les désaccords. Une erreur réseau n'écrit rien : relancer reprend là où on s'était arrêté.
 
-**Champs ajoutés au format 4.3** (à signaler à Léopold pour l'import) : `page_id`, `title`, `kind`, `synthetic`,
+**Champs ajoutés au format 15.3** (à signaler à Léopold pour l'import) : `page_id`, `title`, `kind`, `synthetic`,
 `signal_type`, `explanation`, `decided_by`, `decider_model`, `prompt_version`, `nemotron_suspicious`,
 `gemini_decision`, `disagreement`, et dans `exposure` : `still_online`, `readers_partial`, `ended_by`, `tracked_by`, `titles`.
 `tracked_by: "revert only"` = notre parseur ne voit pas le changement (ex. image dans une infobox) : seule une annulation
@@ -39,4 +39,4 @@ introduits pour le texte), en se basant sur la version suspecte elle-même. Sino
 **Campagne de test** : `synthetic: true` est la seule étiquette. `decide.py` la retire avant d'appeler Gemini ;
 Maël doit faire de même avant Nemotron, sinon le test se note lui-même.
 
-À remplir par l'équipe, jamais inventé : `data/manual_review.csv` et `decision/PROMPT-LOG.md`.
+À remplir par l'équipe, jamais inventé : `data/manual_review.csv`.
